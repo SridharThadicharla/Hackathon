@@ -1,0 +1,54 @@
+# ==============================================================================
+# Cognizant MuleSoft Hackathon 2026-2027
+# Use Case 08: Logistics - Real-Time Multi-Carrier Shipment Tracking
+# Development Environment Configuration Properties (mule-dev.yaml)
+# ==============================================================================
+
+http:
+  host: "0.0.0.0"
+  port: "8081"
+  basePath: "/api/v1"
+
+# Anypoint Platform API Manager Configuration
+api:
+  id: "21233619"
+
+# Database Configuration (MySQL 8.0 - Tested & Verified)
+db:
+  host: "localhost"
+  port: "3306"
+  user: "root"
+  password: "root"
+  database: "shipment_control_tower"
+  connectionTimeout: "30000"
+
+# Carrier Webhook Authentication (Shared Secrets / API Tokens)
+carrier:
+  bluedart:
+    token: "bluedart-webhook-secret-key-2026"
+  delhivery:
+    token: "delhivery-webhook-secret-key-2026"
+
+# Milestone Notification Queue Settings
+queue:
+  provider: "vm"
+  milestoneQueue: "shipment-milestone-queue"
+  deadLetterQueue: "shipment-milestone-dlq"
+
+# Explainable Risk Engine Thresholds (Hours)
+risk:
+  staleTransitHours: "48"
+  criticalExceptionHours: "24"
+  warningLeadHours: "6"
+
+# Email Notification Gateway Configuration (100% Free / Toggleable)
+notification:
+  email:
+    enabled: "false"
+    host: "smtp.gmail.com"
+    port: "587"
+    user: "sridharthadicharla@gmail.com"
+    password: "cmyfmvocrfaazmba"
+    fromAddress: "sridharthadicharla@gmail.com"
+    defaultRecipient: "sridharthadicharla@gmail.com"
+    subjectPrefix: "[Control Tower Alert]"

@@ -1,0 +1,852 @@
+{
+  "info": {
+    "_postman_id": "4b6a9e10-c32f-48d8-91e7-shipment-tracking-tower",
+    "name": "Shipment Signal Control Tower - Multi-Carrier Tracking",
+    "description": "Cognizant MuleSoft Hackathon 2026-2027: Use Case 08 - Logistics. Real-Time Multi-Carrier Shipment Tracking API Test Suite.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Webhooks - Carrier Ingestion",
+      "item": [
+        {
+          "name": "POST BlueDart Webhook - In Transit Scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit - Forwarded to Destination Hub\",\n  \"scan_date_time\": \"2026-10-11T10:30:00+05:30\",\n  \"location_code\": \"DEL/HUB\",\n  \"location_name\": \"Delhi Regional Sorting Hub\",\n  \"eta\": \"2026-10-14T18:00:00+05:30\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Delhivery Webhook - Out for Delivery Scan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\",\n  \"Status\": {\n    \"status\": \"Out for Delivery\",\n    \"statusCode\": \"OFD\",\n    \"statusDateTime\": \"2026-10-11 08:30:00\",\n    \"instructions\": \"Package out for delivery with courier agent Ram\"\n  },\n  \"Scans\": [\n    {\n      \"scanType\": \"Van Out\",\n      \"scanDateTime\": \"2026-10-11 08:30:00\",\n      \"scannedLocation\": \"HYD/BEGUMPET\"\n    }\n  ],\n  \"ExpectedDeliveryDate\": \"2026-10-11T18:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Duplicate BlueDart Scan (Idempotency Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit - Forwarded to Destination Hub\",\n  \"scan_date_time\": \"2026-10-11T10:30:00+05:30\",\n  \"location_code\": \"DEL/HUB\",\n  \"location_name\": \"Delhi Regional Sorting Hub\",\n  \"eta\": \"2026-10-14T18:00:00+05:30\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Out-of-Order Stale BlueDart Scan (No State Regression)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"PU\",\n  \"status_description\": \"Delayed pickup confirmation timestamp from earlier origin scan\",\n  \"scan_date_time\": \"2026-10-10T08:00:00+05:30\",\n  \"location_code\": \"BOM/FC\",\n  \"location_name\": \"Mumbai FC Origin\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Unknown Shipment Scan (Quarantine Buffer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberUnknown}}\",\n  \"Status\": {\n    \"status\": \"In Transit\",\n    \"statusCode\": \"IT\",\n    \"statusDateTime\": \"2026-10-11 11:45:00\",\n    \"instructions\": \"Package moving between freight hubs\"\n  },\n  \"Scans\": [\n    {\n      \"scanType\": \"Bag In\",\n      \"scanDateTime\": \"2026-10-11 11:45:00\",\n      \"scannedLocation\": \"GGN/HUB\"\n    }\n  ],\n  \"ExpectedDeliveryDate\": \"2026-10-13T18:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Shipment Management & Tracking",
+      "item": [
+        {
+          "name": "POST Register Shipment (WMS Master Creation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shipmentId\": \"SHP-1006\",\n  \"trackingNumber\": \"BD-445566778\",\n  \"carrier\": \"BLUEDART\",\n  \"originLocation\": \"Hyderabad E-commerce Park\",\n  \"destinationLocation\": \"Chennai South Hub\",\n  \"promisedDeliveryTime\": \"2026-10-16T18:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Shipment By Tracking Number",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "{{trackingNumberBlueDart}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Shipment Event History (Audit Trail)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "{{trackingNumberBlueDart}}",
+                "history"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Explainable Risk Assessment (Delayed SLA)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelayed}}/risk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "{{trackingNumberDelayed}}",
+                "risk"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Customer Notification Messages (Transactional Outbox)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelhivery}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "{{trackingNumberDelhivery}}",
+                "notifications"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Control Tower Operations & Telemetry",
+      "item": [
+        {
+          "name": "GET Operational Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Carrier Pulse Metrics & Telemetry",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/carriers/pulse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "carriers",
+                "pulse"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Reconcile Quarantined Events Batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/reconcile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "reconcile"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Negative Testing & Security",
+      "item": [
+        {
+          "name": "N01 - Missing / Invalid Carrier Token (401 Unauthorized)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "INVALID_TOKEN_SECRET_999"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"Unauthorized ingress scan attempt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N01: Missing or incorrect X-Carrier-Token must be rejected with HTTP 401 Unauthorized. No DB writes or notifications occur."
+          }
+        },
+        {
+          "name": "N01-B - Completely Missing Token Header (401 Unauthorized)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\",\n  \"Status\": {\n    \"statusCode\": \"OFD\",\n    \"status\": \"Out for Delivery\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            },
+            "description": "N01-B: Omission of X-Carrier-Token header is rejected with HTTP 401."
+          }
+        },
+        {
+          "name": "N02-A - Malformed Payload - Missing Tracking Number AWB (400 Bad Request)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit scan missing mandatory awb_no\",\n  \"scan_date_time\": \"2026-10-13T10:00:00+05:30\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N02: Missing required tracking number rejected with HTTP 400 Bad Request."
+          }
+        },
+        {
+          "name": "N02-B - Malformed Payload - Missing Carrier Status (400 Bad Request)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            },
+            "description": "N02: Missing carrier status rejected with HTTP 400 Bad Request."
+          }
+        },
+        {
+          "name": "N02-C - Malformed Syntax - Broken JSON (400 Bad Request)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"BD-987654321\",\n  \"status_code\": "
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N02: Malformed JSON syntax rejected with HTTP 400 Bad Request."
+          }
+        },
+        {
+          "name": "N03 - Unsupported Carrier Code (400 Bad Request)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tracking_number\": \"FEDEX-11223344\",\n  \"status\": \"IN_TRANSIT\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/FEDEX",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "FEDEX"
+              ]
+            },
+            "description": "N03: Unsupported carrier code (e.g. FEDEX) rejected with HTTP 400 UNSUPPORTED_CARRIER."
+          }
+        },
+        {
+          "name": "N04 - Unmapped Carrier Status (200 Normalized to EXCEPTION & Alert)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"CUSTOMS_SPECIAL_HOLD\",\n  \"status_description\": \"Shipment detained for regulatory verification\",\n  \"scan_date_time\": \"2026-10-13T11:00:00+05:30\",\n  \"location_code\": \"BOM/AIRPORT\",\n  \"location_name\": \"Mumbai Air Cargo Complex\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N04: Unmapped carrier status normalized to EXCEPTION milestone, originalStatus preserved, and operational alert logged."
+          }
+        },
+        {
+          "name": "N05 - Unknown Tracking Number (200 Quarantined to Pending Buffer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"DELH-NOT-YET-REGISTERED-8888\",\n  \"Status\": {\n    \"status\": \"In Transit\",\n    \"statusCode\": \"IT\",\n    \"statusDateTime\": \"2026-10-13 11:30:00\",\n    \"instructions\": \"Package moving between freight hubs\"\n  },\n  \"Scans\": [\n    {\n      \"scanType\": \"Bag In\",\n      \"scanDateTime\": \"2026-10-13 11:30:00\",\n      \"scannedLocation\": \"GGN/HUB\"\n    }\n  ],\n  \"ExpectedDeliveryDate\": \"2026-10-15T18:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            },
+            "description": "N05: Unmanifested tracking number safely quarantined in pending_tracking_events table."
+          }
+        },
+        {
+          "name": "N06 - Duplicate Webhook Delivery (200 Suppressed & Idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit - Forwarded to Destination Hub\",\n  \"scan_date_time\": \"2026-10-11T10:30:00+05:30\",\n  \"location_code\": \"DEL/HUB\",\n  \"location_name\": \"Delhi Regional Sorting Hub\",\n  \"eta\": \"2026-10-14T18:00:00+05:30\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N06: Replaying identical event key returns DUPLICATE_ACKNOWLEDGED. Duplicate DB record & notification suppressed."
+          }
+        },
+        {
+          "name": "N07 - Out-of-Order Stale Scan (200 No Current Status Regression)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"PU\",\n  \"status_description\": \"Delayed pickup confirmation timestamp from earlier origin scan\",\n  \"scan_date_time\": \"2026-10-10T08:00:00+05:30\",\n  \"location_code\": \"BOM/FC\",\n  \"location_name\": \"Mumbai FC Origin\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N07: Stale scan timestamp recorded in history as OUT_OF_ORDER_RECORDED without regressing active status."
+          }
+        },
+        {
+          "name": "N08 - Transit Scan After Delivery (200 Preserves Delivered State)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\",\n  \"Status\": {\n    \"statusCode\": \"IT\",\n    \"status\": \"Delayed transit scan arriving after package delivered\"\n  },\n  \"Scans\": [\n    {\n      \"scannedLocation\": \"BOM/SORT\",\n      \"scanDateTime\": \"2026-10-13 15:00:00\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "DELHIVERY"
+              ]
+            },
+            "description": "N08: Transit scan received after DELIVERED status does not overwrite delivered state."
+          }
+        },
+        {
+          "name": "N12 - Internal Hub Scan Milestone Filter (200 Suppresses Customer Email)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"AR\",\n  \"status_description\": \"Arrived at intermediate sorting hub\",\n  \"scan_date_time\": \"2026-10-13T13:00:00+05:30\",\n  \"location_code\": \"NAG/HUB\",\n  \"location_name\": \"Nagpur Transit Center\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N12: Internal hub scans stored in history; customer milestone notifications suppressed."
+          }
+        },
+        {
+          "name": "N14 - Malformed Timestamp String Fallback (200 Safe Resilient Parsing)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"Scan with non-standard datetime string\",\n  \"scan_date_time\": \"CORRUPTED_NON_ISO_TIMESTAMP_XYZ\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "carriers",
+                "BLUEDART"
+              ]
+            },
+            "description": "N14: Malformed timestamp parsed safely via DataWeave try() fallback to current UTC time."
+          }
+        },
+        {
+          "name": "GET Shipment - Non-Existent Tracking Number (404 Not Found)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/NON_EXISTENT_AWB_9999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "NON_EXISTENT_AWB_9999"
+              ]
+            },
+            "description": "Non-existent tracking number returns HTTP 404 RESOURCE_NOT_FOUND."
+          }
+        },
+        {
+          "name": "DELETE Shipment - Method Not Allowed (405 Method Not Allowed)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "shipments",
+                "{{trackingNumberBlueDart}}"
+              ]
+            },
+            "description": "Unsupported HTTP method returns HTTP 405 METHOD_NOT_ALLOWED."
+          }
+        }
+      ]
+    }
+  ]
+}

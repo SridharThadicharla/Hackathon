@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Subflow: Query Event by Unique Event Key (Duplicate Check) -->
+	<sub-flow name="subflow-select-event-by-key" doc:id="subflow-get-event-by-key">
+		<db:select doc:name="Query Existing Event by Key" doc:id="db-get-by-key" config-ref="Database_Config" target="existingEvent">
+			<db:sql><![CDATA[SELECT id, event_key, shipment_id, tracking_number, carrier,
+       original_status, normalized_status, event_timestamp, received_timestamp,
+       processing_result, correlation_id
+FROM shipment_tracking_events
+WHERE event_key = :eventKey
+LIMIT 1;]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	eventKey: vars.canonicalEvent.eventKey
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Query Master Shipment Record by Tracking Number -->
+	<sub-flow name="subflow-select-shipment-by-tracking-number" doc:id="subflow-get-shipment-by-tracking">
+		<db:select doc:name="Query Shipment by Tracking Number" doc:id="db-get-by-tracking" config-ref="Database_Config" target="shipmentRecord">
+			<db:sql><![CDATA[SELECT shipment_id, tracking_number, carrier, origin_location, destination_location,
+       current_status, status_rank, last_event_timestamp, estimated_delivery_time,
+       promised_delivery_time, risk_level, risk_reason, created_at, updated_at
+FROM shipments
+WHERE tracking_number = :trackingNumber
+LIMIT 1;]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	trackingNumber: vars.canonicalEvent.trackingNumber
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Insert Event into Tracking Events Audit History Table -->
+	<sub-flow name="subflow-insert-tracking-event" doc:id="subflow-insert-event">
+		<try doc:name="Try Insert Event" doc:id="try-insert-event">
+			<db:insert doc:name="Insert Tracking Event" doc:id="db-insert-event" config-ref="Database_Config">
+				<db:sql><![CDATA[INSERT INTO shipment_tracking_events (
+    event_key, event_id, shipment_id, tracking_number, carrier,
+    original_status, normalized_status, event_timestamp, received_timestamp,
+    location, description, processing_result, correlation_id, source_payload
+) VALUES (
+    :eventKey, :eventId, :shipmentId, :trackingNumber, :carrier,
+    :originalStatus, :normalizedStatus, :eventTimestamp, :receivedTimestamp,
+    :location, :description, :processingResult, :correlationId, :sourcePayload
+);]]></db:sql>
+				<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+fun toSqlDt(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var s = (val as String) replace "T" with " " replace "Z" with ""
+        ---
+        if (sizeOf(s) >= 19) s[0 to 18] else s
+    }
+---
+{
+	eventKey: vars.canonicalEvent.eventKey,
+	eventId: vars.canonicalEvent.eventId,
+	shipmentId: vars.canonicalEvent.shipmentId,
+	trackingNumber: vars.canonicalEvent.trackingNumber,
+	carrier: vars.canonicalEvent.carrier,
+	originalStatus: vars.canonicalEvent.originalStatus,
+	normalizedStatus: vars.canonicalEvent.normalizedStatus,
+	eventTimestamp: toSqlDt(vars.canonicalEvent.eventTimestamp),
+	receivedTimestamp: toSqlDt(vars.canonicalEvent.receivedTimestamp),
+	location: vars.canonicalEvent.location,
+	description: vars.canonicalEvent.description,
+	processingResult: vars.processingResult default "PROCESSED",
+	correlationId: vars.correlationId,
+	sourcePayload: vars.canonicalEvent.sourcePayload
+}]]]></db:input-parameters>
+			</db:insert>
+			<error-handler>
+				<on-error-continue type="DB:QUERY_EXECUTION" enableNotifications="true" logException="true" doc:name="Handle Concurrent Duplicate Key">
+					<logger level="WARN" doc:name="Log Concurrency Duplicate" message="#['[Concurrency Idempotency] Database unique key constraint caught duplicate event key: ' ++ (vars.canonicalEvent.eventKey default '')]" />
+					<set-variable variableName="isDuplicate" value="#[true]" doc:name="Mark isDuplicate True" />
+					<set-variable variableName="processingResult" value="DUPLICATE_SUPPRESSED" doc:name="Set Duplicate Suppressed" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+	</sub-flow>
+
+	<!-- Subflow: Update Master Shipment Current State -->
+	<sub-flow name="subflow-update-shipment-state" doc:id="subflow-update-shipment">
+		<db:update doc:name="Update Shipment Master Record" doc:id="db-update-shipment" config-ref="Database_Config">
+			<db:sql><![CDATA[UPDATE shipments
+SET current_status = :currentStatus,
+    status_rank = :statusRank,
+    last_event_timestamp = :lastEventTimestamp,
+    estimated_delivery_time = COALESCE(:estimatedDeliveryTime, estimated_delivery_time),
+    risk_level = :riskLevel,
+    risk_reason = :riskReason
+WHERE shipment_id = :shipmentId;]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+fun toSqlDt(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var s = (val as String) replace "T" with " " replace "Z" with ""
+        ---
+        if (sizeOf(s) >= 19) s[0 to 18] else s
+    }
+---
+{
+	currentStatus: vars.canonicalEvent.normalizedStatus,
+	statusRank: vars.newStatusRank default 15,
+	lastEventTimestamp: toSqlDt(vars.canonicalEvent.eventTimestamp),
+	estimatedDeliveryTime: toSqlDt(vars.canonicalEvent.estimatedDeliveryTime),
+	riskLevel: vars.riskAssessment.riskLevel default "ON_TRACK",
+	riskReason: vars.riskAssessment.explanation default "Status updated.",
+	shipmentId: vars.targetShipment.shipment_id
+}]]]></db:input-parameters>
+		</db:update>
+	</sub-flow>
+
+	<!-- Subflow: Quarantine Pending Unknown Shipment Event -->
+	<sub-flow name="subflow-insert-pending-event" doc:id="subflow-insert-pending">
+		<db:insert doc:name="Insert Pending Tracking Event" doc:id="db-insert-pending" config-ref="Database_Config">
+			<db:sql><![CDATA[INSERT INTO pending_tracking_events (
+    event_key, tracking_number, carrier, payload,
+    received_timestamp, retry_count, processing_status, last_error, correlation_id
+) VALUES (
+    :eventKey, :trackingNumber, :carrier, :payload,
+    :receivedTimestamp, 0, 'PENDING', :lastError, :correlationId
+)
+ON DUPLICATE KEY UPDATE
+    retry_count = retry_count + 1,
+    last_error = :lastError,
+    correlation_id = :correlationId;]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+fun toSqlDt(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var s = (val as String) replace "T" with " " replace "Z" with ""
+        ---
+        if (sizeOf(s) >= 19) s[0 to 18] else s
+    }
+---
+{
+	eventKey: vars.canonicalEvent.eventKey,
+	trackingNumber: vars.canonicalEvent.trackingNumber,
+	carrier: vars.canonicalEvent.carrier,
+	payload: vars.canonicalEvent.sourcePayload,
+	receivedTimestamp: toSqlDt(vars.canonicalEvent.receivedTimestamp),
+	lastError: "Shipment record not yet created in tracking master table.",
+	correlationId: vars.correlationId
+}]]]></db:input-parameters>
+		</db:insert>
+	</sub-flow>
+
+	<!-- Subflow: Query Shipment by ID or Tracking Number -->
+	<sub-flow name="subflow-select-shipment-by-id" doc:id="subflow-get-shipment">
+		<db:select doc:name="Query Shipment by ID or Tracking" doc:id="db-get-by-id" config-ref="Database_Config" target="queriedShipment">
+			<db:sql><![CDATA[SELECT shipment_id, tracking_number, carrier, origin_location, destination_location,
+       current_status, status_rank, last_event_timestamp, estimated_delivery_time,
+       promised_delivery_time, risk_level, risk_reason, created_at, updated_at
+FROM shipments
+WHERE shipment_id = :identifier OR tracking_number = :identifier
+LIMIT 1;]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	identifier: vars.trackingIdentifier
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Query Events by Shipment ID or Tracking Number -->
+	<sub-flow name="subflow-select-events-by-shipment-id" doc:id="subflow-get-events">
+		<db:select doc:name="Query Chronological Events" doc:id="db-get-events" config-ref="Database_Config">
+			<db:sql><![CDATA[SELECT id, event_key, shipment_id, tracking_number, carrier,
+       original_status, normalized_status, event_timestamp, received_timestamp,
+       location, description, processing_result, correlation_id
+FROM shipment_tracking_events
+WHERE tracking_number = :identifier OR shipment_id = :identifier
+ORDER BY event_timestamp ASC, id ASC;]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	identifier: vars.trackingIdentifier
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Query Notifications by Tracking Number or Shipment ID -->
+	<sub-flow name="subflow-select-notifications-by-shipment-id" doc:id="subflow-get-notifications">
+		<db:select doc:name="Query Outbox Notifications" doc:id="db-get-notifications" config-ref="Database_Config">
+			<db:sql><![CDATA[SELECT id, notification_id, shipment_id, tracking_number, carrier,
+       milestone, message_body, channels, status, retry_count,
+       correlation_id, created_at, sent_at
+FROM notification_outbox
+WHERE tracking_number = :identifier OR shipment_id = :identifier
+ORDER BY created_at DESC, id DESC;]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	identifier: vars.trackingIdentifier
+}]]]></db:input-parameters>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Carrier Pulse Metrics Aggregation Query -->
+	<sub-flow name="subflow-select-carrier-pulse-metrics" doc:id="subflow-pulse-metrics">
+		<db:select doc:name="Query Carrier Operational Metrics" doc:id="db-get-pulse" config-ref="Database_Config">
+			<db:sql><![CDATA[SELECT 
+    c.carrier,
+    COALESCE(e.total_events, 0) AS total_events_received,
+    COALESCE(e.processed_events, 0) AS successfully_processed,
+    COALESCE(e.duplicate_events, 0) AS duplicate_events,
+    COALESCE(e.out_of_order_events, 0) AS out_of_order_events,
+    COALESCE(e.unknown_status_events, 0) AS unknown_status_events,
+    COALESCE(p.pending_events, 0) AS pending_unknown_shipments,
+    COALESCE(s.active_shipments, 0) AS active_shipment_count,
+    e.latest_event_received_at
+FROM (
+    SELECT 'BLUEDART' AS carrier UNION ALL SELECT 'DELHIVERY' AS carrier
+) c
+LEFT JOIN (
+    SELECT carrier,
+           COUNT(*) AS total_events,
+           SUM(CASE WHEN processing_result IN ('PROCESSED', 'REPLAYED') THEN 1 ELSE 0 END) AS processed_events,
+           SUM(CASE WHEN processing_result = 'DUPLICATE_SUPPRESSED' THEN 1 ELSE 0 END) AS duplicate_events,
+           SUM(CASE WHEN processing_result = 'OUT_OF_ORDER_RECORDED' THEN 1 ELSE 0 END) AS out_of_order_events,
+           SUM(CASE WHEN normalized_status = 'UNKNOWN_STATUS' THEN 1 ELSE 0 END) AS unknown_status_events,
+           MAX(event_timestamp) AS latest_event_received_at
+    FROM shipment_tracking_events
+    GROUP BY carrier
+) e ON c.carrier = e.carrier
+LEFT JOIN (
+    SELECT carrier, COUNT(*) AS pending_events
+    FROM pending_tracking_events
+    WHERE processing_status = 'PENDING'
+    GROUP BY carrier
+) p ON c.carrier = p.carrier
+LEFT JOIN (
+    SELECT carrier, COUNT(*) AS active_shipments
+    FROM shipments
+    WHERE current_status NOT IN ('DELIVERED', 'RETURNED')
+    GROUP BY carrier
+) s ON c.carrier = s.carrier;]]></db:sql>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Query Eligible Pending Events for Reconciliation -->
+	<sub-flow name="subflow-select-pending-events-for-reconcile" doc:id="subflow-get-reconcile">
+		<db:select doc:name="Find Reconcilable Pending Events" doc:id="db-find-pending" config-ref="Database_Config" target="pendingReconcileList">
+			<db:sql><![CDATA[SELECT p.id, p.event_key, p.tracking_number, p.carrier, p.payload, p.correlation_id,
+       s.shipment_id
+FROM pending_tracking_events p
+INNER JOIN shipments s ON p.tracking_number = s.tracking_number
+WHERE p.processing_status = 'PENDING'
+ORDER BY p.received_timestamp ASC;]]></db:sql>
+		</db:select>
+	</sub-flow>
+
+	<!-- Subflow: Mark Pending Event as Reconciled -->
+	<sub-flow name="subflow-update-pending-status" doc:id="subflow-mark-reconciled">
+		<db:update doc:name="Mark Pending Event Reconciled" doc:id="db-mark-reconciled" config-ref="Database_Config">
+			<db:sql><![CDATA[UPDATE pending_tracking_events
+SET processing_status = 'RECONCILED',
+    last_error = NULL
+WHERE id = :id;]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	id: vars.reconcileItem.id
+}]]]></db:input-parameters>
+		</db:update>
+	</sub-flow>
+
+	<!-- Subflow: Persist Notification into Outbox Table -->
+	<sub-flow name="subflow-insert-notification-outbox" doc:id="subflow-insert-outbox">
+		<db:insert doc:name="Insert Notification Outbox" doc:id="db-insert-outbox" config-ref="Database_Config" target="outboxInsertResult">
+			<db:sql><![CDATA[INSERT INTO notification_outbox (
+    notification_id, shipment_id, tracking_number, carrier, milestone,
+    message_body, channels, status, correlation_id
+) VALUES (
+    :notificationId, :shipmentId, :trackingNumber, :carrier, :milestone,
+    :messageBody, :channels, 'QUEUED', :correlationId
+)
+ON DUPLICATE KEY UPDATE status = 'QUEUED';]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	notificationId: vars.notificationPayload.notificationId,
+	shipmentId: vars.notificationPayload.shipmentId,
+	trackingNumber: vars.notificationPayload.trackingNumber,
+	carrier: vars.notificationPayload.carrier,
+	milestone: vars.notificationPayload.milestone,
+	messageBody: vars.notificationPayload.messageBody,
+	channels: (vars.notificationPayload.channels joinBy ",") default "SMS,EMAIL",
+	correlationId: vars.correlationId
+}]]]></db:input-parameters>
+		</db:insert>
+	</sub-flow>
+
+	<!-- Subflow: Mark Notification as Sent in Outbox -->
+	<sub-flow name="subflow-mark-notification-sent" doc:id="subflow-mark-outbox-sent">
+		<db:update doc:name="Update Outbox Sent Status" doc:id="db-update-outbox-sent" config-ref="Database_Config" target="outboxUpdateResult">
+			<db:sql><![CDATA[UPDATE notification_outbox
+SET status = 'SENT',
+    sent_at = NOW(3)
+WHERE notification_id = :notificationId;]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	notificationId: vars.notificationItem.notificationId default payload.notificationId
+}]]]></db:input-parameters>
+		</db:update>
+	</sub-flow>
+
+	<!-- Subflow: Record Integration Operational Alert -->
+	<sub-flow name="subflow-insert-integration-alert" doc:id="subflow-insert-alert">
+		<db:insert doc:name="Insert Integration Alert" doc:id="db-insert-alert" config-ref="Database_Config">
+			<db:sql><![CDATA[INSERT INTO integration_alerts (
+    alert_id, alert_type, severity, tracking_number, carrier, alert_message, correlation_id
+) VALUES (
+    :alertId, :alertType, :severity, :trackingNumber, :carrier, :alertMessage, :correlationId
+);]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+	alertId: "ALT-" ++ ((uuid() as String)[0 to 7]),
+	alertType: vars.alertType default "SYSTEM_WARNING",
+	severity: vars.alertSeverity default "WARNING",
+	trackingNumber: vars.alertTrackingNumber,
+	carrier: vars.alertCarrier,
+	alertMessage: vars.alertMessage default "Operational anomaly detected.",
+	correlationId: vars.correlationId
+}]]]></db:input-parameters>
+		</db:insert>
+	</sub-flow>
+
+</mule>

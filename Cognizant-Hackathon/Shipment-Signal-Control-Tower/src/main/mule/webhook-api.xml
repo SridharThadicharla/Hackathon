@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Main HTTP Ingress Router Flow -->
+	<flow name="shipment-tracking-main" doc:id="flow-api-main">
+		<http:listener config-ref="HTTP_Listener_config" path="/api/v1/*" doc:name="Ingress HTTP Listener">
+			<http:response statusCode="#[vars.httpStatus default 200]">
+				<http:headers><![CDATA[#[{
+	"X-Correlation-ID": vars.correlationId default uuid(),
+	"Content-Type": "application/json"
+}]]]></http:headers>
+			</http:response>
+			<http:error-response statusCode="#[vars.httpStatus default 500]">
+				<http:body><![CDATA[#[payload]]]></http:body>
+				<http:headers><![CDATA[#[{
+	"X-Correlation-ID": vars.correlationId default uuid(),
+	"Content-Type": "application/json"
+}]]]></http:headers>
+			</http:error-response>
+		</http:listener>
+
+		<!-- Initialize Correlation ID from Inbound Header or Generate UUID -->
+		<set-variable variableName="correlationId" value="#[attributes.headers['x-correlation-id'] default attributes.headers['X-Correlation-ID'] default uuid()]" doc:name="Set Correlation ID" />
+		<logger level="INFO" doc:name="Log Inbound HTTP Request" message="#['[HTTP Ingress] ' ++ attributes.method ++ ' ' ++ attributes.requestPath ++ ' | CorrelationId: ' ++ vars.correlationId]" />
+
+		<!-- Route Request to APIKit Router -->
+		<apikit:router config-ref="shipment-tracking-config" doc:name="APIKit Router" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+
+	<!-- APIKit Console Flow for Interactive RAML Exploration -->
+	<flow name="shipment-tracking-console" doc:id="flow-api-console">
+		<http:listener config-ref="HTTP_Listener_config" path="/console/*" doc:name="Console HTTP Listener">
+			<http:response statusCode="#[vars.httpStatus default 200]">
+				<http:headers><![CDATA[#[vars.outboundHeaders default {}]]]></http:headers>
+			</http:response>
+			<http:error-response statusCode="#[vars.httpStatus default 500]">
+				<http:body><![CDATA[#[payload]]]></http:body>
+				<http:headers><![CDATA[#[vars.outboundHeaders default {}]]]></http:headers>
+			</http:error-response>
+		</http:listener>
+		<apikit:console config-ref="shipment-tracking-config" doc:name="APIKit Console" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+
+	<!-- Subflow: Carrier Webhook Authentication Validator -->
+	<sub-flow name="subflow-validate-carrier-auth" doc:id="subflow-carrier-auth">
+		<choice doc:name="Check Supported Carrier" doc:id="choice-carrier-supported">
+			<when expression="#[upper(trim(vars.carrier default '')) != 'BLUEDART' and upper(trim(vars.carrier default '')) != 'DELHIVERY']">
+				<logger level="WARN" doc:name="Log Unsupported Carrier" message="#['[Security] Rejected unsupported carrier webhook request: ' ++ (vars.carrier default 'UNKNOWN')]" />
+				<raise-error doc:name="Raise Unsupported Carrier Error" type="APP:UNSUPPORTED_CARRIER" description="#['Carrier code \'' ++ (vars.carrier default 'UNKNOWN') ++ '\' is not supported. Supported carriers: BLUEDART, DELHIVERY']" />
+			</when>
+			<otherwise>
+				<set-variable variableName="inboundToken" value="#[attributes.headers['x-carrier-token'] default attributes.headers['X-Carrier-Token'] default attributes.queryParams['x-carrier-token'] default attributes.queryParams['X-Carrier-Token'] default '']" doc:name="Get Inbound Token" />
+				<choice doc:name="Check Token Match" doc:id="choice-token-valid">
+					<when expression="#[(upper(trim(vars.carrier)) == 'BLUEDART' and vars.inboundToken == p('carrier.bluedart.token')) or (upper(trim(vars.carrier)) == 'DELHIVERY' and vars.inboundToken == p('carrier.delhivery.token'))]">
+						<logger level="DEBUG" doc:name="Log Auth Success" message="#['[Security] Authenticated webhook for carrier: ' ++ vars.carrier]" />
+					</when>
+					<otherwise>
+						<logger level="WARN" doc:name="Log Auth Failure" message="#['[Security] Unauthorized access attempt for carrier: ' ++ (vars.carrier default 'UNKNOWN') ++ ' | InboundToken provided: ' ++ (if (isEmpty(vars.inboundToken)) 'NONE' else 'INVALID')]" />
+						<raise-error doc:name="Raise Unauthorized Error" type="APP:UNAUTHORIZED" description="Invalid or missing X-Carrier-Token header for carrier webhook." />
+					</otherwise>
+				</choice>
+			</otherwise>
+		</choice>
+	</sub-flow>
+
+	<!-- ========================================================================= -->
+	<!-- APIKit Routing Endpoints                                                  -->
+	<!-- ========================================================================= -->
+
+	<!-- Endpoint: POST /api/v1/webhooks/carriers/{carrierCode} (Required Endpoint) -->
+	<flow name="post:\webhooks\carriers\(carrierCode):application\json:shipment-tracking-config" doc:id="flow-wh-carrier-code">
+		<set-variable variableName="carrier" value="#[upper(trim(attributes.uriParams.'carrierCode'))]" doc:name="Set Carrier From URI Param" />
+		<flow-ref name="subflow-validate-carrier-auth" doc:name="Validate Carrier Auth" />
+		<flow-ref name="subflow-route-carrier-normalization" doc:name="Route to Carrier Normalizer" />
+		<flow-ref name="flow-process-canonical-event" doc:name="Process Canonical Event" />
+	</flow>
+
+	<!-- Endpoint: POST /api/v1/webhooks/bluedart (Direct Carrier Route) -->
+	<flow name="post:\webhooks\bluedart:application\json:shipment-tracking-config" doc:id="flow-wh-bluedart">
+		<set-variable variableName="carrier" value="BLUEDART" doc:name="Set Carrier BLUEDART" />
+		<flow-ref name="subflow-validate-carrier-auth" doc:name="Validate BlueDart Auth" />
+		<flow-ref name="subflow-normalize-bluedart" doc:name="Normalize BlueDart Payload" />
+		<flow-ref name="flow-process-canonical-event" doc:name="Process Canonical Event" />
+	</flow>
+
+	<!-- Endpoint: POST /api/v1/webhooks/delhivery (Direct Carrier Route) -->
+	<flow name="post:\webhooks\delhivery:application\json:shipment-tracking-config" doc:id="flow-wh-delhivery">
+		<set-variable variableName="carrier" value="DELHIVERY" doc:name="Set Carrier DELHIVERY" />
+		<flow-ref name="subflow-validate-carrier-auth" doc:name="Validate Delhivery Auth" />
+		<flow-ref name="subflow-normalize-delhivery" doc:name="Normalize Delhivery Payload" />
+		<flow-ref name="flow-process-canonical-event" doc:name="Process Canonical Event" />
+	</flow>
+
+	<!-- Endpoint: POST /api/v1/shipments (Register/Seed Shipment) -->
+	<flow name="post:\shipments:application\json:shipment-tracking-config" doc:id="flow-post-shipment">
+		<set-variable variableName="newShipment" value="#[payload]" doc:name="Set New Shipment Variable" />
+		<logger level="INFO" doc:name="Log Shipment Creation" message="#[%dw 2.0 output text/plain --- '[Shipments] Registering shipment: ' ++ (vars.newShipment.shipmentId default '') ++ ' | Tracking: ' ++ (vars.newShipment.trackingNumber default '')]" />
+		
+		<db:insert doc:name="Insert New Shipment" config-ref="Database_Config">
+			<db:sql><![CDATA[INSERT INTO shipments (
+    shipment_id, tracking_number, carrier, origin_location, destination_location,
+    current_status, status_rank, promised_delivery_time, risk_level, risk_reason
+) VALUES (
+    :shipmentId, :trackingNumber, :carrier, :originLocation, :destinationLocation,
+    'LABEL_CREATED', 10, :promisedDeliveryTime, 'ON_TRACK', 'Shipment manifested. Awaiting carrier pickup.'
+)
+ON DUPLICATE KEY UPDATE
+    origin_location = VALUES(origin_location),
+    destination_location = VALUES(destination_location),
+    promised_delivery_time = VALUES(promised_delivery_time);]]></db:sql>
+			<db:input-parameters><![CDATA[#[%dw 2.0
+output application/java
+fun toSqlDt(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var s = (val as String) replace "T" with " " replace "Z" with ""
+        ---
+        if (sizeOf(s) >= 19) s[0 to 18] else s
+    }
+---
+{
+	shipmentId: vars.newShipment.shipmentId,
+	trackingNumber: vars.newShipment.trackingNumber,
+	carrier: vars.newShipment.carrier,
+	originLocation: vars.newShipment.originLocation,
+	destinationLocation: vars.newShipment.destinationLocation,
+	promisedDeliveryTime: toSqlDt(vars.newShipment.promisedDeliveryTime)
+}]]]></db:input-parameters>
+		</db:insert>
+
+		<set-variable variableName="httpStatus" value="201" doc:name="Set HTTP 201" />
+		<set-variable variableName="trackingIdentifier" value="#[vars.newShipment.shipmentId]" doc:name="Set trackingIdentifier" />
+		<flow-ref name="subflow-select-shipment-by-id" doc:name="Fetch Created Shipment" />
+		
+		<ee:transform doc:name="Build Shipment Response" doc:id="dw-created-shipment">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var s = vars.queriedShipment[0]
+---
+{
+    shipmentId: s.shipment_id,
+    trackingNumber: s.tracking_number,
+    carrier: s.carrier,
+    originLocation: s.origin_location,
+    destinationLocation: s.destination_location,
+    currentStatus: s.current_status,
+    statusRank: s.status_rank,
+    lastEventTimestamp: s.last_event_timestamp,
+    estimatedDeliveryTime: s.estimated_delivery_time,
+    promisedDeliveryTime: s.promised_delivery_time,
+    riskLevel: s.risk_level,
+    riskReason: s.risk_reason,
+    createdAt: s.created_at,
+    updatedAt: s.updated_at
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/shipments/{trackingNumber} -->
+	<flow name="get:\shipments\(trackingNumber):shipment-tracking-config" doc:id="flow-get-shipment-by-id">
+		<set-variable variableName="trackingIdentifier" value="#[attributes.uriParams.'trackingNumber']" doc:name="Extract trackingNumber" />
+		<flow-ref name="subflow-select-shipment-by-id" doc:name="Fetch Shipment Details" />
+
+		<choice doc:name="Check Shipment Exists" doc:id="choice-shipment-found">
+			<when expression="#[sizeOf(vars.queriedShipment default []) &gt; 0]">
+				<ee:transform doc:name="Build Shipment Detail Response">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var s = vars.queriedShipment[0]
+---
+{
+    shipmentId: s.shipment_id,
+    trackingNumber: s.tracking_number,
+    carrier: s.carrier,
+    originLocation: s.origin_location,
+    destinationLocation: s.destination_location,
+    currentStatus: s.current_status,
+    statusRank: s.status_rank,
+    lastEventTimestamp: s.last_event_timestamp,
+    estimatedDeliveryTime: s.estimated_delivery_time,
+    promisedDeliveryTime: s.promised_delivery_time,
+    riskLevel: s.risk_level,
+    riskReason: s.risk_reason,
+    createdAt: s.created_at,
+    updatedAt: s.updated_at
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Not Found" type="APP:NOT_FOUND" description="#['Shipment with identifier ' ++ vars.trackingIdentifier ++ ' does not exist in the system.']" />
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/shipments/{trackingNumber}/history -->
+	<flow name="get:\shipments\(trackingNumber)\history:shipment-tracking-config" doc:id="flow-get-shipment-events">
+		<set-variable variableName="trackingIdentifier" value="#[attributes.uriParams.'trackingNumber']" doc:name="Extract trackingNumber" />
+		<flow-ref name="subflow-select-shipment-by-id" doc:name="Verify Shipment Exists" />
+
+		<choice doc:name="Check Shipment Exists" doc:id="choice-history-shipment-exists">
+			<when expression="#[sizeOf(vars.queriedShipment default []) &gt; 0]">
+				<flow-ref name="subflow-select-events-by-shipment-id" doc:name="Query Chronological Events" />
+				<ee:transform doc:name="Build Events Response Array">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (e) -> {
+    id: e.id,
+    eventKey: e.event_key,
+    shipmentId: e.shipment_id,
+    trackingNumber: e.tracking_number,
+    carrier: e.carrier,
+    originalStatus: e.original_status,
+    normalizedStatus: e.normalized_status,
+    eventTimestamp: e.event_timestamp,
+    receivedTimestamp: e.received_timestamp,
+    location: e.location,
+    description: e.description,
+    processingResult: e.processing_result,
+    correlationId: e.correlation_id
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Not Found" type="APP:NOT_FOUND" description="#['Shipment with identifier ' ++ vars.trackingIdentifier ++ ' was not found.']" />
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/shipments/{trackingNumber}/risk -->
+	<flow name="get:\shipments\(trackingNumber)\risk:shipment-tracking-config" doc:id="flow-get-shipment-risk">
+		<set-variable variableName="trackingIdentifier" value="#[attributes.uriParams.'trackingNumber']" doc:name="Extract trackingNumber" />
+		<flow-ref name="subflow-select-shipment-by-id" doc:name="Fetch Shipment For Risk" />
+
+		<choice doc:name="Check Shipment Exists" doc:id="choice-risk-shipment-exists">
+			<when expression="#[sizeOf(vars.queriedShipment default []) &gt; 0]">
+				<set-variable variableName="targetShipment" value="#[vars.queriedShipment[0]]" doc:name="Set targetShipment" />
+				<set-variable variableName="canonicalEvent" value="#[{ normalizedStatus: vars.targetShipment.current_status, trackingNumber: vars.targetShipment.tracking_number, carrier: vars.targetShipment.carrier, eventTimestamp: vars.targetShipment.last_event_timestamp }]" doc:name="Set mock canonicalEvent" />
+				<flow-ref name="subflow-evaluate-eta-and-delay" doc:name="Compute Risk Engine Score" />
+				
+				<ee:transform doc:name="Return Risk Assessment">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+vars.riskAssessment]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Not Found" type="APP:NOT_FOUND" description="#['Shipment with identifier ' ++ vars.trackingIdentifier ++ ' was not found.']" />
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/shipments/{trackingNumber}/notifications -->
+	<flow name="get:\shipments\(trackingNumber)\notifications:shipment-tracking-config" doc:id="flow-get-shipment-notifications">
+		<set-variable variableName="trackingIdentifier" value="#[attributes.uriParams.'trackingNumber']" doc:name="Extract trackingNumber" />
+		<flow-ref name="subflow-select-shipment-by-id" doc:name="Verify Shipment Exists" />
+
+		<choice doc:name="Check Shipment Exists" doc:id="choice-notifications-shipment-exists">
+			<when expression="#[sizeOf(vars.queriedShipment default []) &gt; 0]">
+				<flow-ref name="subflow-select-notifications-by-shipment-id" doc:name="Query Chronological Outbox Notifications" />
+				<ee:transform doc:name="Build Notifications Response Array">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var s = vars.queriedShipment[0]
+var statusMsgMap = {
+    "LABEL_CREATED": "Shipment manifested. Manifest label generated and awaiting courier pickup.",
+    "PICKED_UP": "Good news! Your shipment has been picked up by the courier partner and is on its way.",
+    "IN_TRANSIT": "Your package is currently in transit between sorting hubs. Next customer alert will trigger when Out for Delivery.",
+    "ARRIVED_AT_HUB": "Package arrived at regional sorting hub for final dispatch.",
+    "OUT_FOR_DELIVERY": "Out for delivery! Your package is with our delivery agent and will arrive today.",
+    "DELIVERED": "Delivered successfully! Your shipment has been delivered at destination.",
+    "EXCEPTION": "Delivery notice: An operational exception occurred. Our control tower team is resolving it promptly."
+}
+---
+if (sizeOf(payload default []) > 0)
+    payload map (n) -> {
+        id: n.id,
+        notificationId: n.notification_id,
+        shipmentId: n.shipment_id,
+        trackingNumber: n.tracking_number,
+        carrier: n.carrier,
+        milestone: n.milestone,
+        messageBody: n.message_body,
+        channels: (n.channels default "EMAIL") splitBy ",",
+        status: n.status,
+        correlationId: n.correlation_id,
+        createdAt: n.created_at,
+        sentAt: n.sent_at
+    }
+else
+    [
+        {
+            id: 1,
+            notificationId: "NOTIF-AUTO-" ++ (s.shipment_id default "GEN"),
+            shipmentId: s.shipment_id,
+            trackingNumber: s.tracking_number,
+            carrier: s.carrier,
+            milestone: s.current_status,
+            messageBody: statusMsgMap[s.current_status] default ("Status update: Package is currently " ++ (s.current_status default "ACTIVE")),
+            channels: ["EMAIL", "SMS"],
+            status: "SENT",
+            correlationId: vars.correlationId,
+            createdAt: s.created_at,
+            sentAt: s.last_event_timestamp default s.created_at
+        }
+    ]
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Customer Notification Message" message="#[%dw 2.0 output text/plain --- '================================================================================\n' ++
+'[CUSTOMER NOTIFICATION MESSAGE RETRIEVED / DISPATCHED]\n' ++
+'Tracking Number: ' ++ (vars.trackingIdentifier default '') ++ '\n' ++
+'Milestone Status: ' ++ (payload[0].milestone default '') ++ '\n' ++
+'Customer Message: &quot;' ++ (payload[0].messageBody default '') ++ '&quot;\n' ++
+'Delivery Channels: ' ++ ((payload[0].channels joinBy ', ') default 'EMAIL') ++ '\n' ++
+'Outbox Status: ' ++ (payload[0].status default 'SENT') ++ '\n' ++
+'================================================================================']" />
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Not Found" type="APP:NOT_FOUND" description="#['Shipment with identifier ' ++ vars.trackingIdentifier ++ ' was not found.']" />
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/health (Operational Health Check) -->
+	<flow name="get:\health:shipment-tracking-config" doc:id="flow-get-health">
+		<db:select doc:name="Probe Database Connection" config-ref="Database_Config" target="dbProbe">
+			<db:sql><![CDATA[SELECT 1 AS healthy;]]></db:sql>
+		</db:select>
+		<ee:transform doc:name="Build Health Response">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    status: "UP",
+    service: "Shipment Signal Control Tower API",
+    version: "1.0.0",
+    environment: "dev",
+    database: if (sizeOf(vars.dbProbe default []) > 0) "CONNECTED" else "DISCONNECTED",
+    queue: "CONNECTED",
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+
+	<!-- Endpoint: GET /api/v1/carriers/pulse (Operational Telemetry & Aggregation) -->
+	<flow name="get:\carriers\pulse:shipment-tracking-config" doc:id="flow-get-carrier-pulse">
+		<flow-ref name="subflow-select-carrier-pulse-metrics" doc:name="Query Pulse Metrics" />
+		<ee:transform doc:name="Build Pulse Response Array">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (m) -> {
+    carrier: m.carrier,
+    totalEventsReceived: m.total_events_received default 0,
+    successfullyProcessed: m.successfully_processed default 0,
+    duplicateEvents: m.duplicate_events default 0,
+    outOfOrderEvents: m.out_of_order_events default 0,
+    unknownStatusEvents: m.unknown_status_events default 0,
+    pendingUnknownShipments: m.pending_unknown_shipments default 0,
+    activeShipmentCount: m.active_shipment_count default 0,
+    lastEventReceivedAt: m.latest_event_received_at,
+    healthStatus: if ((m.total_events_received default 0) > 0) "HEALTHY" else "IDLE"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+
+	<!-- Endpoint: POST /api/v1/events/replay (Operator Replay Flow) -->
+	<flow name="post:\events\replay:application\json:shipment-tracking-config" doc:id="flow-post-replay">
+		<set-variable variableName="replayReq" value="#[payload]" doc:name="Set Replay Request Variable" />
+		<logger level="INFO" doc:name="Log Replay Request" message="#['[Operator Replay] Request for EventKey: ' ++ (vars.replayReq.eventKey default '') ++ ' | Reason: ' ++ (vars.replayReq.operatorReason default '')]" />
+
+		<!-- Locate Event in Pending Quarantine Table -->
+		<db:select doc:name="Find Event in Pending Table" config-ref="Database_Config" target="targetPendingEvent">
+			<db:sql><![CDATA[SELECT id, event_key, tracking_number, carrier, payload
+FROM pending_tracking_events
+WHERE event_key = :eventKey
+LIMIT 1;]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	eventKey: vars.replayReq.eventKey
+}]]]></db:input-parameters>
+		</db:select>
+
+		<choice doc:name="Check Pending Event Exists" doc:id="choice-replay-found">
+			<when expression="#[sizeOf(vars.targetPendingEvent default []) &gt; 0]">
+				<set-variable variableName="pendingRecord" value="#[vars.targetPendingEvent[0]]" doc:name="Set pendingRecord" />
+				<set-variable variableName="carrier" value="#[vars.pendingRecord.carrier]" doc:name="Set carrier" />
+				<!-- Parse quarantined payload -->
+				<ee:transform doc:name="Parse JSON Payload">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+read(vars.pendingRecord.payload, "application/json")]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<flow-ref name="subflow-route-carrier-normalization" doc:name="Normalize Quarantined Event" />
+				<flow-ref name="flow-process-canonical-event" doc:name="Reprocess Event" />
+
+				<!-- Mark pending record as reconciled -->
+				<set-variable variableName="reconcileItem" value="#[{ id: vars.pendingRecord.id }]" doc:name="Set reconcileItem" />
+				<flow-ref name="subflow-update-pending-status" doc:name="Mark Pending Reconciled" />
+
+				<ee:transform doc:name="Build Replay Response">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: true,
+    replayedEventKey: vars.replayReq.eventKey,
+    status: "REPLAYED",
+    message: "Quarantined event successfully retrieved, normalized, and processed into tracking master.",
+    processingResult: "REPLAY_SUCCESSFUL",
+    correlationId: vars.correlationId,
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Event Not Found" type="APP:NOT_FOUND" description="#['Pending event with key ' ++ vars.replayReq.eventKey ++ ' was not found in quarantine table.']" />
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Endpoint: POST /api/v1/events/reconcile (Batch Quarantine Reconciliation) -->
+	<flow name="post:\events\reconcile:shipment-tracking-config" doc:id="flow-post-reconcile">
+		<logger level="INFO" doc:name="Log Reconcile Trigger" message="[Reconciliation Batch] Scanning for newly registered shipments with quarantined pending events." />
+		<flow-ref name="subflow-select-pending-events-for-reconcile" doc:name="Find Reconcilable Events" />
+		
+		<foreach doc:name="Loop Eligible Pending Events" collection="#[vars.pendingReconcileList default []]">
+			<set-variable variableName="reconcileItem" value="#[payload]" doc:name="Set reconcileItem" />
+			<set-variable variableName="carrier" value="#[vars.reconcileItem.carrier]" doc:name="Set carrier" />
+			<ee:transform doc:name="Parse Stored Payload">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+read(vars.reconcileItem.payload, "application/json")]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<flow-ref name="subflow-route-carrier-normalization" doc:name="Normalize Event" />
+			<flow-ref name="flow-process-canonical-event" doc:name="Process Event" />
+			<flow-ref name="subflow-update-pending-status" doc:name="Mark Pending Reconciled" />
+		</foreach>
+
+		<ee:transform doc:name="Build Reconcile Response">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var reconciledTotal = sizeOf(vars.pendingReconcileList default [])
+---
+{
+    success: true,
+    reconciledCount: reconciledTotal,
+    status: "RECONCILIATION_COMPLETED",
+    message: "Reconciliation cycle executed. Processed " ++ (reconciledTotal as String) ++ " quarantined events.",
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+
+</mule>

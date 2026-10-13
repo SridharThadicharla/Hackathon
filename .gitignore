@@ -1,0 +1,25 @@
+# Target build artifacts
+target/
+**/target/
+*.jar
+*.zip
+
+# Anypoint Studio & Eclipse IDE workspace files
+.metadata/
+**/.metadata/
+.mule/
+**/.mule/
+.studio/
+**/.studio/
+*.launch
+bin/
+**/bin/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+logs/
+**/logs/

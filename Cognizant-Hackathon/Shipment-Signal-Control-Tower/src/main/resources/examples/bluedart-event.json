@@ -1,0 +1,9 @@
+{
+  "awb_no": "BD-987654321",
+  "status_code": "IT",
+  "status_description": "In Transit to Destination Delivery Hub",
+  "scan_date_time": "2026-10-11T10:30:00+05:30",
+  "location_code": "DEL/HUB",
+  "location_name": "Delhi Regional Processing Hub",
+  "eta": "2026-10-13T18:00:00+05:30"
+}

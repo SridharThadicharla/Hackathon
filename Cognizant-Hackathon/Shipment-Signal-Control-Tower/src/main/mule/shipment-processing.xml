@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Main Flow: Process Canonical Shipment Event -->
+	<flow name="flow-process-canonical-event" doc:id="flow-process-event">
+		<set-variable variableName="canonicalEvent" value="#[%dw 2.0 output application/java --- payload]" doc:name="Set Canonical Event Variable" />
+		<set-variable variableName="isDuplicate" value="#[false]" doc:name="Init isDuplicate" />
+		<set-variable variableName="isOutOfOrder" value="#[false]" doc:name="Init isOutOfOrder" />
+		<set-variable variableName="isPendingUnknown" value="#[false]" doc:name="Init isPendingUnknown" />
+
+		<!-- 1. Idempotency Check: Query unique event key -->
+		<flow-ref name="subflow-select-event-by-key" doc:name="Check Duplicate Event Key" />
+
+		<choice doc:name="Choice on Duplicate" doc:id="choice-duplicate">
+			<when expression="#[sizeOf(vars.existingEvent default []) &gt; 0]">
+				<!-- Duplicate Detected: Suppress re-insertion and customer notifications -->
+				<set-variable variableName="isDuplicate" value="#[true]" doc:name="Set isDuplicate True" />
+				<logger level="WARN" doc:name="Log Duplicate Event" message="#[%dw 2.0 output text/plain --- '[Idempotency] Duplicate event detected and suppressed. EventKey: ' ++ (vars.canonicalEvent.eventKey default '') ++ ' | Tracking: ' ++ (vars.canonicalEvent.trackingNumber default '')]" />
+				
+				<ee:transform doc:name="Build Duplicate Acknowledgment" doc:id="dw-dup-ack">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: true,
+    status: "DUPLICATE_ACKNOWLEDGED",
+    message: "Event already processed and recorded. Duplicate delivery suppressed safely.",
+    eventId: vars.canonicalEvent.eventId,
+    shipmentId: vars.existingEvent[0].shipment_id default "N/A",
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    normalizedStatus: vars.canonicalEvent.normalizedStatus,
+    isDuplicate: true,
+    isOutOfOrder: false,
+    isPendingUnknown: false,
+    receivedTimestamp: vars.canonicalEvent.receivedTimestamp,
+    correlationId: vars.correlationId
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</when>
+
+			<otherwise>
+				<!-- 2. Master Shipment Verification: Query by tracking number -->
+				<flow-ref name="subflow-select-shipment-by-tracking-number" doc:name="Lookup Shipment in DB" />
+
+				<choice doc:name="Choice on Shipment Existence" doc:id="choice-shipment-exists">
+					<when expression="#[sizeOf(vars.shipmentRecord default []) == 0]">
+						<!-- Unknown Shipment: Quarantine event into pending table for auto-reconciliation -->
+						<set-variable variableName="isPendingUnknown" value="#[true]" doc:name="Set isPendingUnknown True" />
+						<logger level="WARN" doc:name="Log Unknown Shipment" message="#[%dw 2.0 output text/plain --- '[Unknown Shipment] Tracking number ' ++ (vars.canonicalEvent.trackingNumber default '') ++ ' not found in shipments table. Quarantining to pending_tracking_events.']" />
+						
+						<flow-ref name="subflow-insert-pending-event" doc:name="Quarantine Pending Event" />
+
+						<ee:transform doc:name="Build Pending Acknowledgment" doc:id="dw-pending-ack">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: true,
+    status: "QUARANTINED_PENDING_REGISTRATION",
+    message: "Shipment record not found in master database. Event safely quarantined for auto-reconciliation.",
+    eventId: vars.canonicalEvent.eventId,
+    shipmentId: "UNKNOWN",
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    normalizedStatus: vars.canonicalEvent.normalizedStatus,
+    isDuplicate: false,
+    isOutOfOrder: false,
+    isPendingUnknown: true,
+    receivedTimestamp: vars.canonicalEvent.receivedTimestamp,
+    correlationId: vars.correlationId
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+
+					<otherwise>
+						<!-- 3. Shipment Found: Perform State Transition & Out-of-Order Check -->
+						<set-variable variableName="targetShipment" value="#[vars.shipmentRecord[0]]" doc:name="Set Target Shipment Variable" />
+						<set-variable variableName="targetShipmentId" value="#[vars.targetShipment.shipment_id]" doc:name="Set Target ShipmentId" />
+						
+						<!-- Update canonicalEvent with linked shipmentId -->
+						<ee:transform doc:name="Link ShipmentId to Canonical Event" doc:id="dw-link-shipment">
+							<ee:message />
+							<ee:variables>
+								<ee:set-variable variableName="canonicalEvent"><![CDATA[%dw 2.0
+output application/java
+---
+vars.canonicalEvent ++ { shipmentId: vars.targetShipment.shipment_id }]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+
+						<!-- Evaluate Status Ranks & Timestamp Chronology -->
+						<ee:transform doc:name="Evaluate Out-of-Order State" doc:id="dw-eval-order">
+							<ee:message />
+							<ee:variables>
+								<ee:set-variable variableName="orderDecision"><![CDATA[%dw 2.0
+import try from dw::Runtime
+output application/java
+
+fun toUtcDateTime(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var rawStr = (val as String) replace " " with "T"
+        var direct = try(() -> (rawStr as DateTime >> "UTC"))
+        var withZ = if (direct.success) direct else try(() -> ((rawStr ++ "Z") as DateTime >> "UTC"))
+        ---
+        if (direct.success) direct.result
+        else if (withZ.success) withZ.result
+        else null
+    }
+
+var rankMap = {
+    "LABEL_CREATED": 10,
+    "PICKED_UP": 20,
+    "IN_TRANSIT": 30,
+    "ARRIVED_AT_HUB": 35,
+    "OUT_FOR_DELIVERY": 40,
+    "EXCEPTION": 42,
+    "DELIVERY_ATTEMPTED": 45,
+    "DELIVERED": 50,
+    "RETURNED": 60
+}
+var currentRank = vars.targetShipment.status_rank default 10
+var newRank = rankMap[vars.canonicalEvent.normalizedStatus] default 15
+
+var lastTs = toUtcDateTime(vars.targetShipment.last_event_timestamp)
+var incomingTs = toUtcDateTime(vars.canonicalEvent.eventTimestamp) default (now() >> "UTC")
+
+// Out-of-order if incoming scan timestamp is strictly older than latest recorded event
+var isOlder = if (lastTs != null) incomingTs < lastTs else false
+// Or if already in a terminal state (DELIVERED or RETURNED) and receives an earlier transit scan
+var isTerminal = (vars.targetShipment.current_status == "DELIVERED" or vars.targetShipment.current_status == "RETURNED")
+var isDowngrade = isTerminal and (newRank < currentRank)
+
+var outOfOrderCondition = isOlder or isDowngrade
+---
+{
+    isOutOfOrder: outOfOrderCondition,
+    currentRank: currentRank,
+    newRank: newRank,
+    processingResult: if (outOfOrderCondition) "OUT_OF_ORDER_RECORDED" else "PROCESSED"
+}]]></ee:set-variable>
+							</ee:variables>
+						</ee:transform>
+
+						<set-variable variableName="isOutOfOrder" value="#[vars.orderDecision.isOutOfOrder]" doc:name="Set isOutOfOrder" />
+						<set-variable variableName="newStatusRank" value="#[vars.orderDecision.newRank]" doc:name="Set newStatusRank" />
+						<set-variable variableName="processingResult" value="#[vars.orderDecision.processingResult]" doc:name="Set processingResult" />
+
+						<choice doc:name="Choice on Out-of-Order" doc:id="choice-order">
+							<when expression="#[vars.isOutOfOrder == true]">
+								<!-- Out-of-Order Event: Record in history for audit, but DO NOT regress shipment master state -->
+								<logger level="WARN" doc:name="Log Out-of-Order Event" message="#[%dw 2.0 output text/plain --- '[Out-of-Order] Stale/Older event received for Shipment ' ++ (vars.targetShipment.shipment_id default '') ++ '. Preserving in history without regressing current status: ' ++ (vars.targetShipment.current_status default '')]" />
+								
+								<flow-ref name="subflow-insert-tracking-event" doc:name="Insert Out-of-Order Event to History" />
+
+								<ee:transform doc:name="Build Out-of-Order Acknowledgment" doc:id="dw-ooo-ack">
+									<ee:message>
+										<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: true,
+    status: "OUT_OF_ORDER_RECORDED",
+    message: "Stale or out-of-order event recorded in audit history. Current shipment status preserved without regression.",
+    eventId: vars.canonicalEvent.eventId,
+    shipmentId: vars.targetShipment.shipment_id,
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    normalizedStatus: vars.canonicalEvent.normalizedStatus,
+    isDuplicate: false,
+    isOutOfOrder: true,
+    isPendingUnknown: false,
+    receivedTimestamp: vars.canonicalEvent.receivedTimestamp,
+    correlationId: vars.correlationId
+}]]></ee:set-payload>
+									</ee:message>
+								</ee:transform>
+							</when>
+
+							<otherwise>
+								<!-- Normal Progression: Update state, insert history, evaluate risk & publish notification -->
+								<flow-ref name="subflow-evaluate-eta-and-delay" doc:name="Evaluate ETA and Risk" />
+								<flow-ref name="subflow-update-shipment-state" doc:name="Update Shipment Master State" />
+								<flow-ref name="subflow-insert-tracking-event" doc:name="Insert Event to History" />
+								<choice doc:name="Check If Unmapped Status Alert Needed" doc:id="choice-unmapped-status-alert">
+									<when expression="#[vars.canonicalEvent.normalizedStatus == 'EXCEPTION' and !(['EX', 'EXCEPTION', 'HLD', 'DMG', 'DAMAGED', 'LOST'] contains vars.canonicalEvent.originalStatus)]">
+										<set-variable variableName="alertType" value="UNKNOWN_STATUS" doc:name="Set alertType UNKNOWN_STATUS" />
+										<set-variable variableName="alertSeverity" value="WARNING" doc:name="Set alertSeverity WARNING" />
+										<set-variable variableName="alertTrackingNumber" value="#[vars.canonicalEvent.trackingNumber]" doc:name="Set alertTrackingNumber" />
+										<set-variable variableName="alertCarrier" value="#[vars.canonicalEvent.carrier]" doc:name="Set alertCarrier" />
+										<set-variable variableName="alertMessage" value="#['Unmapped carrier status code \'' ++ (vars.canonicalEvent.originalStatus default '') ++ '\' normalized to EXCEPTION.']" doc:name="Set alertMessage" />
+										<flow-ref name="subflow-insert-integration-alert" doc:name="Record Unmapped Status Alert" />
+									</when>
+								</choice>
+								<flow-ref name="subflow-publish-milestone-notification" doc:name="Enqueue Milestone Notification" />
+
+								<ee:transform doc:name="Build Success Acknowledgment" doc:id="dw-success-ack">
+									<ee:message>
+										<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: true,
+    status: "EVENT_PROCESSED_SUCCESSFULLY",
+    message: vars.notificationPayload.messageBody default "Shipment event received, normalized, persisted, and evaluated.",
+    customerMessage: vars.notificationPayload.messageBody default "Transit scan recorded. Customer notification suppressed (only major milestones trigger customer alerts).",
+    customerNotification: if (vars.notificationPayload != null) {
+        milestone: vars.notificationPayload.milestone,
+        recipientEmail: vars.notificationPayload.recipientEmail,
+        message: vars.notificationPayload.messageBody,
+        status: "DISPATCHED_TO_CUSTOMER",
+        notificationId: vars.notificationPayload.notificationId
+    } else null,
+    eventId: vars.canonicalEvent.eventId,
+    shipmentId: vars.targetShipment.shipment_id,
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    normalizedStatus: vars.canonicalEvent.normalizedStatus,
+    isDuplicate: false,
+    isOutOfOrder: false,
+    isPendingUnknown: false,
+    receivedTimestamp: vars.canonicalEvent.receivedTimestamp,
+    correlationId: vars.correlationId
+}]]></ee:set-payload>
+									</ee:message>
+								</ee:transform>
+							</otherwise>
+						</choice>
+					</otherwise>
+				</choice>
+			</otherwise>
+		</choice>
+	</flow>
+
+</mule>

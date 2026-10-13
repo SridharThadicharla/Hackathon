@@ -1,0 +1,17 @@
+{
+  "waybill": "DELH-11223344",
+  "Status": {
+    "status": "In Transit",
+    "statusCode": "IT",
+    "statusDateTime": "2026-10-11 11:15:00",
+    "instructions": "Departed sorting facility en route to Hyderabad distribution center"
+  },
+  "Scans": [
+    {
+      "scanType": "Bag Out",
+      "scanDateTime": "2026-10-11 11:15:00",
+      "scannedLocation": "BLR/HUB"
+    }
+  ],
+  "ExpectedDeliveryDate": "2026-10-13T20:00:00Z"
+}

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Subflow: Normalize BlueDart Payload to Canonical Model -->
+	<sub-flow name="subflow-normalize-bluedart" doc:id="subflow-bluedart">
+		<logger level="INFO" doc:name="Log Raw BlueDart Payload" message="#[%dw 2.0 output text/plain --- '[Normalizer] Processing BlueDart payload for AWB: ' ++ (payload.awb_no default payload.tracking_number default 'N/A') ++ ' | CorrelationId: ' ++ (vars.correlationId default '')]" />
+		<ee:transform doc:name="Transform BlueDart to Canonical" doc:id="dw-bluedart">
+			<ee:message>
+				<ee:set-payload resource="dw/bluedart-to-canonical.dwl" />
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log Canonical Event" message="#[%dw 2.0 output text/plain --- '[Normalizer] BlueDart normalized to Canonical Status: ' ++ (payload.normalizedStatus default 'N/A') ++ ' | EventKey: ' ++ (payload.eventKey default 'N/A')]" />
+	</sub-flow>
+
+	<!-- Subflow: Normalize Delhivery Payload to Canonical Model -->
+	<sub-flow name="subflow-normalize-delhivery" doc:id="subflow-delhivery">
+		<logger level="INFO" doc:name="Log Raw Delhivery Payload" message="#[%dw 2.0 output text/plain --- '[Normalizer] Processing Delhivery payload for Waybill: ' ++ (payload.waybill default payload.tracking_number default 'N/A') ++ ' | CorrelationId: ' ++ (vars.correlationId default '')]" />
+		<ee:transform doc:name="Transform Delhivery to Canonical" doc:id="dw-delhivery">
+			<ee:message>
+				<ee:set-payload resource="dw/delhivery-to-canonical.dwl" />
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log Canonical Event" message="#[%dw 2.0 output text/plain --- '[Normalizer] Delhivery normalized to Canonical Status: ' ++ (payload.normalizedStatus default 'N/A') ++ ' | EventKey: ' ++ (payload.eventKey default 'N/A')]" />
+	</sub-flow>
+
+	<!-- Subflow: Dynamic Router for Carrier Normalization -->
+	<sub-flow name="subflow-route-carrier-normalization" doc:id="subflow-carrier-router">
+		<choice doc:name="Choice on Carrier" doc:id="choice-carrier">
+			<when expression="#[upper(trim(vars.carrier default '')) == 'BLUEDART']">
+				<choice doc:name="Validate BlueDart Payload" doc:id="choice-validate-bd">
+					<when expression="#[(payload != null) and (!isEmpty(payload.awb_no default payload.awb default payload.tracking_number default '')) and (!isEmpty(payload.status_code default payload.status default ''))]">
+						<flow-ref name="subflow-normalize-bluedart" doc:name="Route to BlueDart Normalizer" />
+					</when>
+					<otherwise>
+						<logger level="WARN" doc:name="Log Malformed BlueDart Payload" message="#['[Validation Failure] BlueDart payload missing required awb_no or status_code']" />
+						<raise-error doc:name="Raise Bad Request" type="APP:BAD_REQUEST" description="BlueDart payload is missing required tracking number (awb_no) or status_code." />
+					</otherwise>
+				</choice>
+			</when>
+			<when expression="#[upper(trim(vars.carrier default '')) == 'DELHIVERY']">
+				<choice doc:name="Validate Delhivery Payload" doc:id="choice-validate-del">
+					<when expression="#[(payload != null) and (!isEmpty(payload.waybill default payload.waybill_no default payload.tracking_number default '')) and (!isEmpty(payload.Status.statusCode default payload.Status.status default payload.status default ''))]">
+						<flow-ref name="subflow-normalize-delhivery" doc:name="Route to Delhivery Normalizer" />
+					</when>
+					<otherwise>
+						<logger level="WARN" doc:name="Log Malformed Delhivery Payload" message="#['[Validation Failure] Delhivery payload missing required waybill or Status']" />
+						<raise-error doc:name="Raise Bad Request" type="APP:BAD_REQUEST" description="Delhivery payload is missing required tracking number (waybill) or status." />
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise>
+				<raise-error doc:name="Raise Unsupported Carrier Error" type="APP:UNSUPPORTED_CARRIER" description="#['Carrier ' ++ (vars.carrier default 'UNKNOWN') ++ ' is not currently onboarded to the system. Supported: BLUEDART, DELHIVERY']" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+
+</mule>

@@ -1,0 +1,20 @@
+{
+  "eventId": "EVT-BD-20261011103000",
+  "eventKey": "BLUEDART-BD-987654321-IT-20261011050000",
+  "shipmentId": "SHP-1001",
+  "trackingNumber": "BD-987654321",
+  "carrier": "BLUEDART",
+  "carrierEventCode": "IT",
+  "originalStatus": "IT",
+  "normalizedStatus": "IN_TRANSIT",
+  "eventTimestamp": "2026-10-11T05:00:00Z",
+  "receivedTimestamp": "2026-10-11T05:00:05Z",
+  "location": "Delhi Regional Processing Hub (DEL/HUB)",
+  "description": "In Transit to Destination Delivery Hub",
+  "estimatedDeliveryTime": "2026-10-13T12:30:00Z",
+  "promisedDeliveryTime": "2026-10-15T18:00:00Z",
+  "correlationId": "c85d8984-9df2-43bb-a53f-a3cf6ad35501",
+  "isDuplicate": false,
+  "isOutOfOrder": false,
+  "isPendingUnknown": false
+}

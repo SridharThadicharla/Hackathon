@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+	xmlns:email="http://www.mulesoft.org/schema/mule/email"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+	xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+		http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+		http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+		http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd">
+
+	<!-- Application Configuration Properties File (YAML) -->
+	<configuration-properties doc:name="Configuration properties" doc:id="config-props" file="config/mule-dev.yaml" />
+
+	<!-- Global HTTP Ingress Listener Configuration -->
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="http-listener-config">
+		<http:listener-connection host="${http.host}" port="${http.port}" />
+	</http:listener-config>
+
+	<!-- Global MySQL Database Configuration (MySQL 8.0 with UTC TimeZone & Auto-Reconnect) -->
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="db-config">
+		<db:my-sql-connection host="${db.host}" port="${db.port}" user="${db.user}" password="${db.password}" database="${db.database}">
+			<db:connection-properties>
+				<db:connection-property key="serverTimezone" value="UTC" />
+				<db:connection-property key="useSSL" value="false" />
+				<db:connection-property key="allowPublicKeyRetrieval" value="true" />
+				<db:connection-property key="autoReconnect" value="true" />
+			</db:connection-properties>
+		</db:my-sql-connection>
+	</db:config>
+
+	<!-- Global Asynchronous Reliable Message Queue (VM Connector FIFO Persistent Queues) -->
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="vm-config">
+		<vm:queues>
+			<vm:queue queueName="${queue.milestoneQueue}" queueType="PERSISTENT" />
+			<vm:queue queueName="${queue.deadLetterQueue}" queueType="PERSISTENT" />
+		</vm:queues>
+	</vm:config>
+
+	<!-- Global Email SMTP Configuration (100% Free / Gmail or Local Sandbox) -->
+	<email:smtp-config name="Email_SMTP" doc:name="Email SMTP" doc:id="email-smtp-config">
+		<email:smtp-connection host="${notification.email.host}" port="${notification.email.port}" user="${notification.email.user}" password="${notification.email.password}">
+			<email:properties>
+				<email:property key="mail.smtp.auth" value="true" />
+				<email:property key="mail.smtp.starttls.enable" value="true" />
+			</email:properties>
+		</email:smtp-connection>
+	</email:smtp-config>
+
+	<!-- Global APIKit Router Configuration binding to RAML 1.0 Specification -->
+	<apikit:config name="shipment-tracking-config" raml="api/shipment-tracking.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" doc:name="Router" />
+
+	<!-- Anypoint Platform API Manager Autodiscovery Configuration (Linked to API Instance 21233619 in Sandbox) -->
+	<api-gateway:autodiscovery apiId="${api.id}" flowRef="shipment-tracking-main" doc:name="API Autodiscovery" ignoreBasePath="true" doc:id="api-autodiscovery" />
+
+</mule>

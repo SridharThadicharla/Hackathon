@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Global Application Error Handler -->
+	<error-handler name="globalError_Handler" doc:id="global-error-handler">
+		
+		<!-- 400 Bad Request / RAML Schema Validation Failure -->
+		<on-error-propagate type="APIKIT:BAD_REQUEST, APP:BAD_REQUEST" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="400" doc:name="Set HTTP 400" />
+			<ee:transform doc:name="Build 400 Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "BAD_REQUEST",
+        message: error.description default "Invalid request payload or malformed syntax.",
+        details: error.detailedDescription default "Validation constraint failed against RAML contract."
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 401 Unauthorized / Carrier Token Validation Failure -->
+		<on-error-propagate type="APP:UNAUTHORIZED" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="401" doc:name="Set HTTP 401" />
+			<ee:transform doc:name="Build 401 Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "UNAUTHORIZED",
+        message: error.description default "Missing or invalid carrier authentication credentials.",
+        details: "Provide valid X-Carrier-Token header corresponding to configured carrier shared secret."
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 404 Resource Not Found -->
+		<on-error-propagate type="APIKIT:NOT_FOUND, APP:NOT_FOUND" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="404" doc:name="Set HTTP 404" />
+			<ee:transform doc:name="Build 404 Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "RESOURCE_NOT_FOUND",
+        message: error.description default "Requested resource was not found.",
+        details: "Verify URL parameters, endpoint path, or tracking number."
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 405 Method Not Allowed -->
+		<on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="405" doc:name="Set HTTP 405" />
+			<ee:transform doc:name="Build 405 Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "METHOD_NOT_ALLOWED",
+        message: "HTTP method is not allowed for this endpoint.",
+        details: error.description
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 400 Unsupported Carrier Code -->
+		<on-error-propagate type="APP:UNSUPPORTED_CARRIER" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="400" doc:name="Set HTTP 400" />
+			<ee:transform doc:name="Build Unsupported Carrier Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "UNSUPPORTED_CARRIER",
+        message: error.description default "Carrier code is not supported by the control tower.",
+        details: "Currently onboarded carriers: BLUEDART, DELHIVERY"
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 503 Database Connectivity Failure -->
+		<on-error-propagate type="DB:CONNECTIVITY" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="503" doc:name="Set HTTP 503" />
+			<ee:transform doc:name="Build 503 DB Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "DATABASE_UNAVAILABLE",
+        message: "Database service is temporarily unavailable or unreachable.",
+        details: "Operational connection to MySQL 8.0 cluster failed. Connection retries exhausted."
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+		<!-- 500 Default Unhandled Exception -->
+		<on-error-propagate type="ANY" enableNotifications="true" logException="true">
+			<set-variable variableName="httpStatus" value="500" doc:name="Set HTTP 500" />
+			<ee:transform doc:name="Build 500 Error Response">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    success: false,
+    error: {
+        code: "INTERNAL_SERVER_ERROR",
+        message: "An unexpected error occurred during shipment event processing.",
+        details: error.description default "Internal pipeline failure."
+    },
+    timestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId default uuid()
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		</on-error-propagate>
+
+	</error-handler>
+
+</mule>

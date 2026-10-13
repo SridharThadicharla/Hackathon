@@ -1,0 +1,685 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="munit" />
+
+	<!-- ========================================================================= -->
+	<!-- TEST 1: Valid BlueDart Event Ingestion & Normalization                    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-valid-bluedart-event-normalization" description="Verify BlueDart payload maps to canonical model">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"awb_no": "BD-987654321",
+					"status_code": "IT",
+					"status_description": "In Transit to Sorting Facility",
+					"scan_date_time": "2026-10-10T11:00:00+05:30",
+					"location_code": "BOM/HUB",
+					"location_name": "Mumbai Central Hub",
+					"eta": "2026-10-11T18:00:00+05:30"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['test-corr-001']" />
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-normalize-bluedart" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Carrier is BLUEDART" 
+				actual="#[payload.carrier]" expected="#['BLUEDART']" />
+			<munit-tools:assert-equals doc:name="Assert Normalized Status is IN_TRANSIT" 
+				actual="#[payload.normalizedStatus]" expected="#['IN_TRANSIT']" />
+			<munit-tools:assert-equals doc:name="Assert Tracking Number" 
+				actual="#[payload.trackingNumber]" expected="#['BD-987654321']" />
+			<munit-tools:assert-equals doc:name="Assert EventKey is not null" 
+				actual="#[payload.eventKey != null]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 2: Valid Delhivery Event Ingestion & Normalization                   -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-valid-delhivery-event-normalization" description="Verify Delhivery payload maps to canonical model">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"waybill": "DELH-11223344",
+					"Status": {
+						"status": "Out for Delivery",
+						"statusCode": "OFD",
+						"statusDateTime": "2026-10-10 09:30:00",
+						"instructions": "Out for delivery with courier agent"
+					},
+					"Scans": [
+						{
+							"scanType": "Van In",
+							"scanDateTime": "2026-10-10 09:30:00",
+							"scannedLocation": "DEL/SOUTH"
+						}
+					],
+					"ExpectedDeliveryDate": "2026-10-10T18:00:00Z"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['test-corr-002']" />
+					<munit:variable key="carrier" value="#['DELHIVERY']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-normalize-delhivery" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Carrier is DELHIVERY" 
+				actual="#[payload.carrier]" expected="#['DELHIVERY']" />
+			<munit-tools:assert-equals doc:name="Assert Normalized Status is OUT_FOR_DELIVERY" 
+				actual="#[payload.normalizedStatus]" expected="#['OUT_FOR_DELIVERY']" />
+			<munit-tools:assert-equals doc:name="Assert Tracking Number" 
+				actual="#[payload.trackingNumber]" expected="#['DELH-11223344']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 3: Carrier Authentication Rejection (Missing/Invalid Token)          -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unauthorized-carrier-token-rejection" description="Verify invalid carrier token raises APP:UNAUTHORIZED" expectedErrorType="APP:UNAUTHORIZED">
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					headers: { 'x-carrier-token': 'INVALID_EXPIRED_KEY_123' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-validate-carrier-auth" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 4: Carrier Authentication Success with Configured Token              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-authorized-carrier-token-success" description="Verify valid carrier token passes without error">
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					headers: { 'x-carrier-token': 'delhivery-webhook-secret-key-2026' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['DELHIVERY']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-validate-carrier-auth" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert carrier variable still present"
+				actual="#[vars.carrier]" expected="#['DELHIVERY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 5: Unknown Status Code Fallback to EXCEPTION (N04)                    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unknown-carrier-status-normalization" description="Verify unmapped status maps to EXCEPTION milestone">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"awb_no": "BD-987654321",
+					"status_code": "CUSTOMS_DELAY_SPECIAL",
+					"status_description": "Unregistered status code"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-normalize-bluedart" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert fallback to EXCEPTION" 
+				actual="#[payload.normalizedStatus]" expected="#['EXCEPTION']" />
+			<munit-tools:assert-equals doc:name="Assert original status retained" 
+				actual="#[payload.originalStatus]" expected="#['CUSTOMS_DELAY_SPECIAL']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 6: Duplicate Event Suppression (Idempotency)                         -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-duplicate-event-detection-and-suppression" description="Verify duplicate event key returns DUPLICATE_ACKNOWLEDGED">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Existing Event Found">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[{
+							id: 1,
+							event_key: 'BLUEDART-BD-987654321-IT-20261010110000',
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventId": "EVT-001",
+					"eventKey": "BLUEDART-BD-987654321-IT-20261010110000",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"normalizedStatus": "IN_TRANSIT",
+					"eventTimestamp": "2026-10-10T11:00:00Z",
+					"receivedTimestamp": "2026-10-10T11:00:05Z",
+					"correlationId": "corr-dup-01"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-dup-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="flow-process-canonical-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert status is DUPLICATE_ACKNOWLEDGED" 
+				actual="#[payload.status]" expected="#['DUPLICATE_ACKNOWLEDGED']" />
+			<munit-tools:assert-equals doc:name="Assert isDuplicate is true" 
+				actual="#[payload.isDuplicate]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 7: Unknown Shipment Quarantining                                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unknown-shipment-quarantining" description="Verify unmanifested tracking number is quarantined to pending table">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Duplicate Check - None">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Shipment Lookup - Not Found">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-tracking" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="shipmentRecord" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Pending Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-pending" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ generatedKeys: { id: 99 } }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventId": "EVT-UNK-99",
+					"eventKey": "DELHIVERY-DELH-99887766-IT-20261010114500",
+					"trackingNumber": "DELH-99887766",
+					"carrier": "DELHIVERY",
+					"normalizedStatus": "IN_TRANSIT",
+					"eventTimestamp": "2026-10-10T11:45:00Z",
+					"receivedTimestamp": "2026-10-10T11:45:05Z",
+					"correlationId": "corr-unk-01",
+					"sourcePayload": "{}"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-unk-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="flow-process-canonical-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Quarantined Status" 
+				actual="#[payload.status]" expected="#['QUARANTINED_PENDING_REGISTRATION']" />
+			<munit-tools:assert-equals doc:name="Assert isPendingUnknown is true" 
+				actual="#[payload.isPendingUnknown]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 8: Explainable Risk Evaluation - SLA Delayed Detection               -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-risk-evaluation-delayed-sla" description="Verify expired promised delivery date triggers DELAYED risk status">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="targetShipment" value="#[{
+						shipment_id: 'SHP-1003',
+						tracking_number: 'BD-123456789',
+						carrier: 'BLUEDART',
+						current_status: 'IN_TRANSIT',
+						promised_delivery_time: '2026-10-09 12:00:00',
+						estimated_delivery_time: '2026-10-14 18:00:00'
+					}]" />
+					<munit:variable key="canonicalEvent" value="#[{
+						shipmentId: 'SHP-1003',
+						trackingNumber: 'BD-123456789',
+						carrier: 'BLUEDART',
+						normalizedStatus: 'IN_TRANSIT',
+						estimatedDeliveryTime: '2026-10-14T18:00:00Z',
+						eventTimestamp: '2026-10-10T12:00:00Z'
+					}]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-evaluate-eta-and-delay" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Risk Level is DELAYED" 
+				actual="#[vars.riskAssessment.riskLevel]" expected="#['DELAYED']" />
+			<munit-tools:assert-equals doc:name="Assert Reason Code is PROMISED_SLA_BREACHED" 
+				actual="#[vars.riskAssessment.reasonCode]" expected="#['PROMISED_SLA_BREACHED']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 9: Notification Milestone Filtering (Non-Milestone Suppressed)        -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-notification-milestone-filtering" description="Verify routine IN_TRANSIT scan does not trigger customer milestone notification">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-987654321',
+						carrier: 'BLUEDART',
+						normalizedStatus: 'IN_TRANSIT',
+						eventTimestamp: '2026-10-10T12:00:00Z'
+					}]" />
+					<munit:variable key="isDuplicate" value="#[false]" />
+					<munit:variable key="isOutOfOrder" value="#[false]" />
+					<munit:variable key="isPendingUnknown" value="#[false]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-publish-milestone-notification" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Notification Payload was not created"
+				actual="#[vars.notificationPayload]" expected="#[null]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 10: Unsupported Carrier Rejection (N03)                              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unsupported-carrier-rejection" description="Verify unsupported carrier raises APP:UNSUPPORTED_CARRIER" expectedErrorType="APP:UNSUPPORTED_CARRIER">
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					headers: { 'x-carrier-token': 'any-token' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['FEDEX']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-validate-carrier-auth" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 11: Missing Required Tracking Number in BlueDart Payload (N02)       -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-missing-required-fields-rejection-bluedart" description="Verify BlueDart payload missing awb_no raises APP:BAD_REQUEST" expectedErrorType="APP:BAD_REQUEST">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"status_code": "IT",
+					"scan_date_time": "2026-10-10T11:00:00Z"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-route-carrier-normalization" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 12: Missing Required Waybill in Delhivery Payload (N02)              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-missing-required-fields-rejection-delhivery" description="Verify Delhivery payload missing waybill raises APP:BAD_REQUEST" expectedErrorType="APP:BAD_REQUEST">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"Status": { "statusCode": "IT" }
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['DELHIVERY']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-route-carrier-normalization" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 13: Out-of-Order Stale Event Preserves Current State (N07)           -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-out-of-order-event-preserves-current-status" description="Verify older scan is recorded as OUT_OF_ORDER_RECORDED without regressing status">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Duplicate Check - None">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Active Shipment - Newer Timestamp">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-tracking" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="shipmentRecord" value="#[[{
+							shipment_id: 'SHP-1002',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'OUT_FOR_DELIVERY',
+							status_rank: 40,
+							last_event_timestamp: '2026-10-12 15:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Tracking Event History">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-event" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ generatedKeys: { id: 101 } }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventId": "EVT-STALE-01",
+					"eventKey": "BLUEDART-BD-987654321-IT-20261011100000",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"normalizedStatus": "IN_TRANSIT",
+					"eventTimestamp": "2026-10-11T10:00:00Z",
+					"receivedTimestamp": "2026-10-12T16:00:00Z",
+					"correlationId": "corr-ooo-01",
+					"sourcePayload": "{}"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-ooo-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="flow-process-canonical-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert status is OUT_OF_ORDER_RECORDED" 
+				actual="#[payload.status]" expected="#['OUT_OF_ORDER_RECORDED']" />
+			<munit-tools:assert-equals doc:name="Assert isOutOfOrder is true" 
+				actual="#[payload.isOutOfOrder]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 14: Transit Scan After Delivery Protected (N08)                      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-transit-event-after-delivery-suppressed" description="Verify transit scan after DELIVERED does not regress delivered terminal status">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Duplicate Check - None">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Shipment Lookup - Delivered">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-tracking" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="shipmentRecord" value="#[[{
+							shipment_id: 'SHP-1002',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'DELIVERED',
+							status_rank: 50,
+							last_event_timestamp: '2026-10-12 12:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Tracking Event History">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-event" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ generatedKeys: { id: 102 } }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventId": "EVT-POST-DELIV-01",
+					"eventKey": "BLUEDART-BD-987654321-IT-20261012130000",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"normalizedStatus": "IN_TRANSIT",
+					"eventTimestamp": "2026-10-12T13:00:00Z",
+					"receivedTimestamp": "2026-10-12T13:05:00Z",
+					"correlationId": "corr-deliv-01",
+					"sourcePayload": "{}"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-deliv-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="flow-process-canonical-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert status is OUT_OF_ORDER_RECORDED" 
+				actual="#[payload.status]" expected="#['OUT_OF_ORDER_RECORDED']" />
+			<munit-tools:assert-equals doc:name="Assert isOutOfOrder is true" 
+				actual="#[payload.isOutOfOrder]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 15: Database Connectivity Failure Propagation (N10)                  -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-database-connectivity-failure-handling" description="Verify database connectivity failure propagates DB:CONNECTIVITY" expectedErrorType="DB:CONNECTIVITY">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Database Connection Down">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:error typeId="DB:CONNECTIVITY" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						eventKey: 'BLUEDART-BD-001-IT-20261010'
+					}]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-event-by-key" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 16: Queue Publish Failure Preserves Outbox & Alerts (N11)            -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-queue-publish-failure-preserves-outbox" description="Verify VM queue failure is caught, alert recorded, and outbox preserved">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Outbox Record">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-outbox" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ generatedKeys: { id: 201 } }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="vm:publish" doc:name="Mock VM Publish Failure">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="vm-publish-milestone" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:error typeId="VM:CONNECTIVITY" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Alert">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-alert" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ generatedKeys: { id: 301 } }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-987654321',
+						carrier: 'BLUEDART',
+						normalizedStatus: 'OUT_FOR_DELIVERY',
+						eventTimestamp: '2026-10-10T12:00:00Z',
+						location: 'Delhi Hub'
+					}]" />
+					<munit:variable key="targetShipment" value="#[{ shipment_id: 'SHP-1001' }]" />
+					<munit:variable key="isDuplicate" value="#[false]" />
+					<munit:variable key="isOutOfOrder" value="#[false]" />
+					<munit:variable key="isPendingUnknown" value="#[false]" />
+					<munit:variable key="correlationId" value="#['corr-qfail-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-publish-milestone-notification" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Alert Type is QUEUE_FAILURE" 
+				actual="#[vars.alertType]" expected="#['QUEUE_FAILURE']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 17: Internal Hub Scan Notification Filtered (N12)                    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-internal-hub-scan-milestone-suppressed" description="Verify internal ARRIVED_AT_HUB scan suppresses customer milestone notification">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-987654321',
+						carrier: 'BLUEDART',
+						normalizedStatus: 'ARRIVED_AT_HUB',
+						eventTimestamp: '2026-10-10T12:00:00Z'
+					}]" />
+					<munit:variable key="isDuplicate" value="#[false]" />
+					<munit:variable key="isOutOfOrder" value="#[false]" />
+					<munit:variable key="isPendingUnknown" value="#[false]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-publish-milestone-notification" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Notification Payload is null for hub scan" 
+				actual="#[vars.notificationPayload]" expected="#[null]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 18: Malformed Timestamp Fallback Handling (N14)                      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-invalid-timestamp-fallback-handling" description="Verify malformed timestamp string is normalized safely without error">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"awb_no": "BD-987654321",
+					"status_code": "IT",
+					"scan_date_time": "INVALID-TIMESTAMP-STRING-NOT-DATE"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-normalize-bluedart" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert eventTimestamp fallback is generated" 
+				actual="#[payload.eventTimestamp != null]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 19: Concurrent Duplicate Event Constraint Violation Handling (N15)    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-concurrent-duplicate-event-handling" description="Verify database unique constraint duplicate violation sets isDuplicate true">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock DB Duplicate Constraint Error">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-event" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:error typeId="DB:QUERY_EXECUTION" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						eventKey: 'BLUEDART-BD-DUP-01',
+						eventId: 'EVT-01',
+						trackingNumber: 'BD-DUP-01',
+						carrier: 'BLUEDART',
+						originalStatus: 'IT',
+						normalizedStatus: 'IN_TRANSIT',
+						eventTimestamp: '2026-10-10T11:00:00Z',
+						receivedTimestamp: '2026-10-10T11:00:05Z',
+						sourcePayload: '{}'
+					}]" />
+					<munit:variable key="isDuplicate" value="#[false]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-insert-tracking-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert isDuplicate marked true after constraint catch" 
+				actual="#[vars.isDuplicate]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

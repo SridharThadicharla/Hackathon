@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Subflow: Evaluate ETA & Explainable Risk Signal -->
+	<sub-flow name="subflow-evaluate-eta-and-delay" doc:id="subflow-eval-risk">
+		<ee:transform doc:name="Compute Explainable Risk Score" doc:id="dw-eval-risk">
+			<ee:message />
+			<ee:variables>
+				<ee:set-variable variableName="riskAssessment"><![CDATA[%dw 2.0
+import try from dw::Runtime
+output application/json
+
+fun toUtcDateTime(val) = 
+    if (val == null or (val as String) == "") null
+    else do {
+        var rawStr = (val as String) replace " " with "T"
+        var direct = try(() -> (rawStr as DateTime >> "UTC"))
+        var withZ = if (direct.success) direct else try(() -> ((rawStr ++ "Z") as DateTime >> "UTC"))
+        ---
+        if (direct.success) direct.result
+        else if (withZ.success) withZ.result
+        else null
+    }
+
+var currentTime = now() >> "UTC"
+var currentStatus = vars.canonicalEvent.normalizedStatus default vars.targetShipment.current_status default "UNKNOWN"
+var etaStr = vars.canonicalEvent.estimatedDeliveryTime default (vars.targetShipment.estimated_delivery_time as String default null)
+var promisedStr = (vars.targetShipment.promised_delivery_time as String default null)
+
+var etaDateTime = toUtcDateTime(etaStr)
+var promisedDateTime = toUtcDateTime(promisedStr)
+
+var isDelivered = (currentStatus == "DELIVERED")
+var isException = (currentStatus == "EXCEPTION" or currentStatus == "DELIVERY_ATTEMPTED")
+
+// Rule 1: CRITICAL Check
+var isCritical = isException and (
+    (promisedDateTime != null and currentTime > promisedDateTime) or 
+    (currentStatus == "EXCEPTION")
+)
+
+// Rule 2: DELAYED Check (Promised delivery date has expired)
+var isDelayed = !isDelivered and (promisedDateTime != null and currentTime > promisedDateTime)
+
+// Rule 3: AT_RISK Check (Carrier ETA exceeds Promised Delivery Date or warning threshold)
+var isAtRisk = !isDelivered and !isDelayed and (
+    (etaDateTime != null and promisedDateTime != null and etaDateTime > promisedDateTime) or
+    (isException)
+)
+
+// Rule 4: UNKNOWN Check (Insufficient SLA benchmark data)
+var isUnknown = !isDelivered and (promisedDateTime == null and etaDateTime == null)
+
+// Determine Risk Level & Reason Code
+var evaluation = if (isDelivered) {
+    level: "ON_TRACK",
+    code: "DELIVERED_SUCCESSFULLY",
+    reason: "Shipment reached destination. Customer delivery confirmed.",
+    factors: ["Terminal milestone reached", "No pending exceptions"]
+} else if (isCritical) {
+    level: "CRITICAL",
+    code: "DELIVERY_FAILURE_OR_BREACH",
+    reason: "Critical operational exception: Carrier exception encountered or SLA breached.",
+    factors: ["Status: " ++ currentStatus, "Immediate dispatch intervention required"]
+} else if (isDelayed) {
+    level: "DELAYED",
+    code: "PROMISED_SLA_BREACHED",
+    reason: "Promised delivery deadline has passed. Current shipment status is " ++ currentStatus ++ ".",
+    factors: ["Promised SLA: " ++ (promisedStr default "N/A"), "Current time exceeds deadline"]
+} else if (isAtRisk) {
+    level: "AT_RISK",
+    code: "ETA_EXCEEDS_PROMISE",
+    reason: "Carrier estimated delivery time exceeds promised customer SLA commitment.",
+    factors: ["Carrier ETA: " ++ (etaStr default "N/A"), "Promised SLA: " ++ (promisedStr default "N/A")]
+} else if (isUnknown) {
+    level: "UNKNOWN",
+    code: "INSUFFICIENT_SLA_DATA",
+    reason: "Insufficient ETA and promised delivery date information to calculate accurate risk.",
+    factors: ["Missing promised SLA timestamp"]
+} else {
+    level: "ON_TRACK",
+    code: "TRANSIT_ON_SCHEDULE",
+    reason: "Shipment transit scans are progressing normally within scheduled delivery window.",
+    factors: ["Scans progressing normally", "Within promised delivery window"]
+}
+---
+{
+    shipmentId: vars.targetShipment.shipment_id default vars.canonicalEvent.shipmentId,
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    currentStatus: currentStatus,
+    riskLevel: evaluation.level,
+    reasonCode: evaluation.code,
+    explanation: evaluation.reason,
+    evaluatedAt: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    estimatedDeliveryTime: etaStr,
+    promisedDeliveryTime: promisedStr,
+    lastEventTimestamp: vars.canonicalEvent.eventTimestamp,
+    riskFactors: evaluation.factors
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+	</sub-flow>
+
+</mule>

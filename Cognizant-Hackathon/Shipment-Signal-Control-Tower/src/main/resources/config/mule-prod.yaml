@@ -1,0 +1,56 @@
+# ==============================================================================
+# Cognizant MuleSoft Hackathon 2026-2027
+# Use Case 08: Logistics - Real-Time Multi-Carrier Shipment Tracking
+# Production / CloudHub Environment Configuration Properties (mule-prod.yaml)
+# Secrets must be supplied via Secure Properties / Anypoint Runtime Manager!
+# ==============================================================================
+
+http:
+  host: "0.0.0.0"
+  port: "8081"
+  basePath: "/api/v1"
+
+# Anypoint Platform API Manager Configuration
+api:
+  id: "21233619"
+
+# Production Database (Cloud RDS MySQL or CloudHub VPC Endpoint)
+db:
+  host: "${secure::db.host}"
+  port: "3306"
+  user: "${secure::db.user}"
+  password: "${secure::db.password}"
+  database: "shipment_control_tower"
+  connectionTimeout: "30000"
+
+# Production Carrier Webhook Authentication Secrets
+carrier:
+  bluedart:
+    token: "${secure::carrier.bluedart.token}"
+  delhivery:
+    token: "${secure::carrier.delhivery.token}"
+
+# Production Queue (Anypoint MQ or Anypoint MQ Fallback)
+queue:
+  provider: "anypoint-mq"
+  milestoneQueue: "prod-shipment-milestone-queue"
+  deadLetterQueue: "prod-shipment-milestone-dlq"
+
+# Production Risk Engine SLA Thresholds
+risk:
+  staleTransitHours: "48"
+  criticalExceptionHours: "24"
+  warningLeadHours: "6"
+
+# Production Email Notification Configuration
+notification:
+  email:
+    enabled: "false"
+    host: "smtp.sendgrid.net"
+    port: "587"
+    user: "${secure::notification.email.user}"
+    password: "${secure::notification.email.password}"
+    fromAddress: "control-tower@logistics.com"
+    defaultRecipient: "customer@control-tower-logistics.com"
+    subjectPrefix: "[Control Tower Alert]"
+

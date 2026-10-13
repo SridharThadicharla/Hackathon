@@ -1,0 +1,371 @@
+#%RAML 1.0
+title: Shipment Signal Control Tower API
+version: v1
+baseUri: http://localhost:8081/api/v1
+mediaType: application/json
+
+documentation:
+  - title: Cognizant MuleSoft Hackathon 2026-2027
+    content: |
+      Use Case 08: Logistics - Real-Time Multi-Carrier Shipment Tracking.
+      The Shipment Signal Control Tower ingests webhook push events from logistics
+      carriers (BlueDart Express, Delhivery Logistics), normalizes carrier-specific
+      schemas into a canonical lifecycle event model, enforces idempotency, prevents
+      out-of-order state regression, calculates explainable delivery delay risks against
+      promised customer SLAs, and queues milestone notifications safely via transactional outbox.
+
+types:
+  ErrorResponse:
+    type: object
+    properties:
+      success: boolean
+      error:
+        type: object
+        properties:
+          code: string
+          message: string
+          details?: string
+      timestamp: datetime
+      correlationId: string
+
+  WebhookAcknowledgment:
+    type: object
+    properties:
+      success: boolean
+      status: string
+      message: string
+      customerMessage?: string
+      customerNotification?: object
+      eventId?: string
+      shipmentId?: string
+      trackingNumber?: string
+      carrier?: string
+      normalizedStatus?: string
+      isDuplicate: boolean
+      isOutOfOrder: boolean
+      isPendingUnknown: boolean
+      receivedTimestamp: datetime
+      correlationId: string
+
+  ShipmentDetail:
+    type: object
+    properties:
+      shipmentId: string
+      trackingNumber: string
+      carrier: string
+      originLocation?: string
+      destinationLocation?: string
+      currentStatus: string
+      statusRank?: integer
+      lastEventTimestamp?: datetime
+      estimatedDeliveryTime?: datetime
+      promisedDeliveryTime?: datetime
+      riskLevel: string
+      riskReason?: string
+      createdAt: datetime
+      updatedAt: datetime
+
+  ShipmentEvent:
+    type: object
+    properties:
+      id: integer
+      eventKey: string
+      shipmentId?: string
+      trackingNumber: string
+      carrier: string
+      originalStatus: string
+      normalizedStatus: string
+      eventTimestamp: datetime
+      receivedTimestamp: datetime
+      location?: string
+      description?: string
+      processingResult: string
+      correlationId?: string
+
+  RiskAssessment:
+    type: object
+    properties:
+      shipmentId: string
+      trackingNumber: string
+      carrier: string
+      currentStatus: string
+      riskLevel:
+        enum: [ON_TRACK, AT_RISK, DELAYED, CRITICAL, UNKNOWN]
+      reasonCode: string
+      explanation: string
+      evaluatedAt: datetime
+      estimatedDeliveryTime?: datetime
+      promisedDeliveryTime?: datetime
+      lastEventTimestamp?: datetime
+      riskFactors:
+        type: array
+        items: string
+
+  CarrierPulseMetrics:
+    type: object
+    properties:
+      carrier: string
+      totalEventsReceived: integer
+      successfullyProcessed: integer
+      duplicateEvents: integer
+      outOfOrderEvents: integer
+      unknownStatusEvents: integer
+      pendingUnknownShipments: integer
+      activeShipmentCount: integer
+      lastEventReceivedAt?: datetime
+      healthStatus: string
+
+  ReplayRequest:
+    type: object
+    properties:
+      eventKey: string
+      operatorReason: string
+
+  ReplayResponse:
+    type: object
+    properties:
+      success: boolean
+      replayedEventKey: string
+      status: string
+      message: string
+      processingResult: string
+      correlationId: string
+      timestamp: datetime
+
+  HealthStatus:
+    type: object
+    properties:
+      status: string
+      service: string
+      version: string
+      environment: string
+      database: string
+      queue: string
+      timestamp: datetime
+
+traits:
+  carrierSecured:
+    headers:
+      X-Carrier-Token:
+        type: string
+        description: Carrier authentication token / shared secret
+        required: false
+      X-Correlation-ID:
+        type: string
+        description: Distributed correlation ID for end-to-end transaction tracing
+        required: false
+
+/webhooks:
+  /carriers:
+    /{carrierCode}:
+      uriParameters:
+        carrierCode:
+          type: string
+          description: Code identifying the carrier (e.g. BLUEDART, DELHIVERY)
+      post:
+        description: Normalized carrier webhook ingestion endpoint for any registered courier
+        is: [carrierSecured]
+        body:
+          application/json:
+            type: object
+        responses:
+          200:
+            body:
+              application/json:
+                type: WebhookAcknowledgment
+          400:
+            body:
+              application/json:
+                type: ErrorResponse
+          401:
+            body:
+              application/json:
+                type: ErrorResponse
+          500:
+            body:
+              application/json:
+                type: ErrorResponse
+
+  /bluedart:
+    post:
+      description: Ingest tracking webhook events directly for BlueDart Express
+      is: [carrierSecured]
+      body:
+        application/json:
+          example: !include ../examples/bluedart-event.json
+      responses:
+        200:
+          body:
+            application/json:
+              type: WebhookAcknowledgment
+        400:
+          body:
+            application/json:
+              type: ErrorResponse
+        401:
+          body:
+            application/json:
+              type: ErrorResponse
+
+  /delhivery:
+    post:
+      description: Ingest tracking webhook events directly for Delhivery Logistics
+      is: [carrierSecured]
+      body:
+        application/json:
+          example: !include ../examples/delhivery-event.json
+      responses:
+        200:
+          body:
+            application/json:
+              type: WebhookAcknowledgment
+        400:
+          body:
+            application/json:
+              type: ErrorResponse
+        401:
+          body:
+            application/json:
+              type: ErrorResponse
+
+/shipments:
+  post:
+    description: Register or seed a shipment master record in the tracking system
+    body:
+      application/json:
+        example: |
+          {
+            "shipmentId": "SHP-1001",
+            "trackingNumber": "BD-987654321",
+            "carrier": "BLUEDART",
+            "originLocation": "Mumbai Fulfillment Center",
+            "destinationLocation": "Delhi Regional Hub",
+            "promisedDeliveryTime": "2026-10-15T18:00:00Z"
+          }
+    responses:
+      201:
+        body:
+          application/json:
+            type: ShipmentDetail
+      400:
+        body:
+          application/json:
+            type: ErrorResponse
+
+  /{trackingNumber}:
+    uriParameters:
+      trackingNumber:
+        type: string
+        description: Tracking AWB / Waybill number or internal Shipment ID
+    get:
+      description: Retrieve latest state, current status, and SLA risk for a shipment
+      responses:
+        200:
+          body:
+            application/json:
+              type: ShipmentDetail
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+
+    /history:
+      get:
+        description: Retrieve full chronological audit event trail for a shipment
+        responses:
+          200:
+            body:
+              application/json:
+                type: array
+                items: ShipmentEvent
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+
+    /risk:
+      get:
+        description: Compute explainable risk level and delay detection against promised SLA
+        responses:
+          200:
+            body:
+              application/json:
+                type: RiskAssessment
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+
+    /notifications:
+      get:
+        description: Retrieve all customer milestone notification messages dispatched from the transactional outbox
+        responses:
+          200:
+            body:
+              application/json:
+                type: array
+          404:
+            body:
+              application/json:
+                type: ErrorResponse
+
+/health:
+  get:
+    description: Operational health check verifying database and message queue connectivity
+    responses:
+      200:
+        body:
+          application/json:
+            type: HealthStatus
+
+/carriers:
+  /pulse:
+    get:
+      description: Aggregated carrier health metrics, event volume, and anomaly counts
+      responses:
+        200:
+          body:
+            application/json:
+              type: array
+              items: CarrierPulseMetrics
+
+/events:
+  /replay:
+    post:
+      description: Replay a quarantined pending event or reprocess an event
+      body:
+        application/json:
+          type: ReplayRequest
+          example: |
+            {
+              "eventKey": "DELHIVERY-DELH-99887766-IN_TRANSIT-20261011111500",
+              "operatorReason": "Shipment SHP-1005 registered in WMS; replaying quarantined event"
+            }
+      responses:
+        200:
+          body:
+            application/json:
+              type: ReplayResponse
+        400:
+          body:
+            application/json:
+              type: ErrorResponse
+        404:
+          body:
+            application/json:
+              type: ErrorResponse
+
+  /reconcile:
+    post:
+      description: Batch reconcile all quarantined events for newly registered shipments
+      responses:
+        200:
+          body:
+            application/json:
+              example: |
+                {
+                  "success": true,
+                  "reconciledCount": 1,
+                  "remainingPending": 0,
+                  "timestamp": "2026-10-11T12:00:00Z"
+                }

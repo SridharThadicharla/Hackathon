@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:email="http://www.mulesoft.org/schema/mule/email"
+	xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+		http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<!-- Subflow: Evaluate Milestone Eligibility, Persist Outbox & Publish to Queue -->
+	<sub-flow name="subflow-publish-milestone-notification" doc:id="subflow-publish-milestone">
+		<!-- Eligibility Filter: Must be milestone status, NOT duplicate, NOT out-of-order, and NOT quarantined -->
+		<choice doc:name="Check Milestone Eligibility" doc:id="choice-milestone-eligible">
+			<when expression="#[(['PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'EXCEPTION', 'DELIVERY_ATTEMPTED'] contains vars.canonicalEvent.normalizedStatus) and (vars.isDuplicate == false) and (vars.isOutOfOrder == false) and (vars.isPendingUnknown == false)]">
+				<ee:transform doc:name="Build Milestone Notification Message" doc:id="dw-build-notification">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var milestoneTemplates = {
+    "PICKED_UP": "Good news! Your shipment has been picked up by the courier partner and is on its way.",
+    "OUT_FOR_DELIVERY": "Out for delivery! Your package is with our delivery agent and will arrive today.",
+    "DELIVERED": "Delivered successfully! Your shipment has been delivered at destination.",
+    "EXCEPTION": "Delivery notice: An operational exception occurred. Our control tower team is resolving it promptly.",
+    "DELIVERY_ATTEMPTED": "Delivery attempted: Courier agent attempted delivery. A re-attempt will be scheduled shortly."
+}
+---
+{
+    notificationId: "NOTIF-" ++ (uuid() as String)[0 to 7],
+    shipmentId: vars.targetShipment.shipment_id default vars.canonicalEvent.shipmentId,
+    trackingNumber: vars.canonicalEvent.trackingNumber,
+    carrier: vars.canonicalEvent.carrier,
+    milestone: vars.canonicalEvent.normalizedStatus,
+    eventTimestamp: vars.canonicalEvent.eventTimestamp,
+    enqueuedTimestamp: (now() >> "UTC") as String {format: "yyyy-MM-dd'T'HH:mm:ss'Z'"},
+    correlationId: vars.correlationId,
+    notificationType: "CUSTOMER_MILESTONE_ALERT",
+    channels: ["EMAIL"],
+    recipientEmail: vars.targetShipment.customer_email default (p('notification.email.defaultRecipient') default "customer@control-tower-logistics.com"),
+    messageBody: milestoneTemplates[vars.canonicalEvent.normalizedStatus] default "Status update received for your package.",
+    location: vars.canonicalEvent.location
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				
+				<!-- Transactional Outbox Pattern: Save record to notification_outbox table first -->
+				<set-variable variableName="notificationPayload" value="#[payload]" doc:name="Save Notification Payload Variable" />
+				<flow-ref name="subflow-insert-notification-outbox" doc:name="Record in Notification Outbox" />
+				
+				<logger level="INFO" doc:name="Log Notification Enqueue" message="#[%dw 2.0 output text/plain --- '[Notification Queue] Enqueueing email alert for Tracking: ' ++ (vars.canonicalEvent.trackingNumber default '') ++ ' | Milestone: ' ++ (vars.canonicalEvent.normalizedStatus default '') ++ ' | Queue: ' ++ (p('queue.milestoneQueue') default '')]" />
+				<try doc:name="Try VM Publish" doc:id="try-vm-publish">
+					<vm:publish doc:name="Publish to Milestone Queue" doc:id="vm-publish-milestone" config-ref="VM_Config" queueName="${queue.milestoneQueue}">
+						<vm:content><![CDATA[#[vars.notificationPayload]]]></vm:content>
+					</vm:publish>
+					<error-handler>
+						<on-error-continue enableNotifications="true" logException="true" doc:name="Handle Queue Failure Gracefully">
+							<logger level="WARN" doc:name="Log Queue Error" message="#[%dw 2.0 output text/plain --- '[Queue Warning] Milestone queue publish failed: ' ++ (error.description default 'Queue unavailable') ++ '. Notification record preserved in outbox.']" />
+							<set-variable variableName="alertType" value="QUEUE_FAILURE" doc:name="Set alertType QUEUE_FAILURE" />
+							<set-variable variableName="alertSeverity" value="HIGH" doc:name="Set alertSeverity HIGH" />
+							<set-variable variableName="alertTrackingNumber" value="#[vars.canonicalEvent.trackingNumber]" doc:name="Set alertTrackingNumber" />
+							<set-variable variableName="alertCarrier" value="#[vars.canonicalEvent.carrier]" doc:name="Set alertCarrier" />
+							<set-variable variableName="alertMessage" value="#['Milestone queue publish failed for ' ++ (vars.canonicalEvent.trackingNumber default '') ++ '. Preserved in outbox for retry.']" doc:name="Set alertMessage" />
+							<flow-ref name="subflow-insert-integration-alert" doc:name="Record Queue Alert" />
+						</on-error-continue>
+					</error-handler>
+				</try>
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="Log Suppressed Non-Milestone Event" message="#[%dw 2.0 output text/plain --- '--------------------------------------------------------------------------------&#xA;' ++
+'[CUSTOMER NOTIFICATION SUPPRESSED (BY DESIGN)]&#xA;' ++
+'Reason: Status &quot;' ++ (vars.canonicalEvent.normalizedStatus default '') ++ '&quot; is an internal transit hop, or event is a duplicate.&#xA;' ++
+'Only major milestones (PICKED_UP, OUT_FOR_DELIVERY, DELIVERED, EXCEPTION, ATTEMPTED) trigger customer emails.&#xA;' ++
+'--------------------------------------------------------------------------------']" />
+			</otherwise>
+		</choice>
+	</sub-flow>
+
+	<!-- Flow: Asynchronous Notification Consumer & Email Dispatcher -->
+	<flow name="flow-consume-milestone-notification" doc:id="flow-notification-consumer">
+		<vm:listener doc:name="Listen on Milestone Queue" doc:id="vm-listener-milestone" config-ref="VM_Config" queueName="${queue.milestoneQueue}" numberOfConsumers="1" />
+		<set-variable variableName="notificationItem" value="#[%dw 2.0 output application/java --- payload]" doc:name="Set notificationItem" />
+		
+		<!-- Transform: Prepare HTML Email Template & Subject -->
+		<ee:transform doc:name="Build HTML Email Content" doc:id="dw-build-email">
+			<ee:variables>
+				<ee:set-variable variableName="emailSubject"><![CDATA[%dw 2.0
+output application/java
+---
+(p('notification.email.subjectPrefix') default "[Control Tower Alert]") ++ " " ++ (vars.notificationItem.milestone default "UPDATE") ++ " - " ++ (vars.notificationItem.trackingNumber default "")]]></ee:set-variable>
+				<ee:set-variable variableName="emailRecipient"><![CDATA[%dw 2.0
+output application/java
+---
+vars.notificationItem.recipientEmail default (p('notification.email.defaultRecipient') default "customer@control-tower-logistics.com")]]></ee:set-variable>
+				<ee:set-variable variableName="emailHtmlContent"><![CDATA[%dw 2.0
+output text/plain
+---
+"<!DOCTYPE html><html><head><style>" ++
+"body{font-family:Arial,sans-serif;background-color:#f4f6f9;margin:0;padding:20px;}" ++
+".card{max-width:600px;margin:auto;background:#fff;border-radius:8px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,0.1);}" ++
+".header{background:#003366;color:#ffffff;padding:16px;border-radius:6px;text-align:center;}" ++
+".badge{background:#28a745;color:#fff;padding:6px 14px;border-radius:4px;font-weight:bold;display:inline-block;margin-top:12px;}" ++
+".table{width:100%;margin-top:20px;border-collapse:collapse;}" ++
+".table td{padding:10px;border-bottom:1px solid #eee;}" ++
+".label{font-weight:bold;color:#555;width:35%;}" ++
+".footer{margin-top:24px;font-size:12px;color:#888;text-align:center;}" ++
+"</style></head><body>" ++
+"<div class='card'>" ++
+"  <div class='header'><h2>Shipment Signal Control Tower</h2><p>Real-Time Customer Milestone Alert</p></div>" ++
+"  <p style='margin-top:20px;font-size:16px;'>Dear Customer,</p>" ++
+"  <p style='font-size:15px;color:#222;'>" ++ (vars.notificationItem.messageBody default "") ++ "</p>" ++
+"  <div style='text-align:center;'><span class='badge'>" ++ (vars.notificationItem.milestone default "") ++ "</span></div>" ++
+"  <table class='table'>" ++
+"    <tr><td class='label'>Tracking Number:</td><td><strong>" ++ (vars.notificationItem.trackingNumber default "") ++ "</strong></td></tr>" ++
+"    <tr><td class='label'>Carrier:</td><td>" ++ (vars.notificationItem.carrier default "") ++ "</td></tr>" ++
+"    <tr><td class='label'>Current Location:</td><td>" ++ (vars.notificationItem.location default "In Transit Hub") ++ "</td></tr>" ++
+"    <tr><td class='label'>Timestamp:</td><td>" ++ (vars.notificationItem.eventTimestamp default "") ++ "</td></tr>" ++
+"    <tr><td class='label'>Notification ID:</td><td><code>" ++ (vars.notificationItem.notificationId default "") ++ "</code></td></tr>" ++
+"  </table>" ++
+"  <div class='footer'>Sent automatically via MuleSoft Anypoint Platform Asynchronous Messaging.</div>" ++
+"</div></body></html>"]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		
+		<!-- Choice Router: Send Live SMTP Email or Dispatch to Simulated Outbox Console -->
+		<choice doc:name="Check If Live SMTP Enabled" doc:id="choice-email-enabled">
+			<when expression="#[p('notification.email.enabled') == 'true']">
+				<try doc:name="Try Physical Email Dispatch" doc:id="try-send-email">
+					<email:send doc:name="Send Live Email Notification" doc:id="email-send-smtp" config-ref="Email_SMTP" fromAddress="${notification.email.fromAddress}" subject="#[vars.emailSubject]">
+						<email:to-addresses>
+							<email:to-address value="#[vars.emailRecipient]" />
+						</email:to-addresses>
+						<email:body contentType="text/html">
+							<email:content><![CDATA[#[vars.emailHtmlContent]]]></email:content>
+						</email:body>
+					</email:send>
+					<logger level="INFO" doc:name="Log Real Email Sent" message="#[%dw 2.0 output text/plain --- '[Live Email Dispatch SUCCESS] Sent milestone email to ' ++ (vars.emailRecipient default '') ++ ' for tracking: ' ++ (vars.notificationItem.trackingNumber default '')]" />
+					<error-handler>
+						<on-error-continue enableNotifications="true" logException="true" doc:name="Handle SMTP Error Gracefully">
+							<logger level="WARN" doc:name="Log SMTP Error" message="#[%dw 2.0 output text/plain --- '[Live Email Warning] Could not connect to external SMTP server: ' ++ (error.description default 'Network/Auth Error') ++ '. Event recorded in notification outbox.']" />
+						</on-error-continue>
+					</error-handler>
+				</try>
+			</when>
+			<otherwise>
+				<logger level="INFO" doc:name="Log Email Notification" message="#[%dw 2.0 output text/plain --- '================================================================================' ++ '\n' ++
+'[EMAIL NOTIFICATION DISPATCHED - ASYNCHRONOUS VM QUEUE &amp; OUTBOX]' ++ '\n' ++
+'To: ' ++ (vars.emailRecipient default '') ++ '\n' ++
+'Subject: ' ++ (vars.emailSubject default '') ++ '\n' ++
+'Milestone: ' ++ (vars.notificationItem.milestone default '') ++ '\n' ++
+'Tracking Number: ' ++ (vars.notificationItem.trackingNumber default '') ++ '\n' ++
+'Carrier: ' ++ (vars.notificationItem.carrier default '') ++ '\n' ++
+'Message Body: ' ++ (vars.notificationItem.messageBody default '') ++ '\n' ++
+'Outbox Status: SENT' ++ '\n' ++
+'================================================================================']" />
+			</otherwise>
+		</choice>
+		
+		<!-- Update outbox status to SENT upon successful asynchronous dispatch -->
+		<flow-ref name="subflow-mark-notification-sent" doc:name="Mark Outbox Sent in DB" />
+	</flow>
+
+</mule>
