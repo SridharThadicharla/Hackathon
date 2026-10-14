@@ -41,7 +41,7 @@ risk:
   criticalExceptionHours: "24"
   warningLeadHours: "6"
 
-# Email Notification Gateway Configuration (100% Free / Toggleable)
+# Email Notification Gateway Configuration 
 notification:
   email:
     enabled: "false"

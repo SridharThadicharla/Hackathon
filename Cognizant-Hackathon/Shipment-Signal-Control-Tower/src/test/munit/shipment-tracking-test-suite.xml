@@ -508,6 +508,8 @@
 				actual="#[payload.status]" expected="#['OUT_OF_ORDER_RECORDED']" />
 			<munit-tools:assert-equals doc:name="Assert isOutOfOrder is true" 
 				actual="#[payload.isOutOfOrder]" expected="#[true]" />
+			<munit-tools:assert-equals doc:name="Assert current shipment status remains DELIVERED" 
+				actual="#[vars.targetShipment.current_status]" expected="#['DELIVERED']" />
 		</munit:validation>
 	</munit:test>
 

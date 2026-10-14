@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="carrier-norm-munit" />
+
+	<!-- ========================================================================= -->
+	<!-- TEST 1: Malformed BlueDart Payload Validation                             -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-malformed-bluedart-payload-rejection" description="Verify malformed BlueDart payload missing awb_no or status_code raises APP:BAD_REQUEST" expectedErrorType="APP:BAD_REQUEST">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"description": "Missing awb_no and status_code"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['BLUEDART']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-route-carrier-normalization" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 2: Malformed Delhivery Payload Validation                            -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-malformed-delhivery-payload-rejection" description="Verify malformed Delhivery payload missing waybill or status raises APP:BAD_REQUEST" expectedErrorType="APP:BAD_REQUEST">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"instructions": "Missing waybill and Status"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['DELHIVERY']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-route-carrier-normalization" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 3: Unsupported Carrier In Router                                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unsupported-carrier-routing-rejection" description="Verify unsupported carrier in router raises APP:UNSUPPORTED_CARRIER" expectedErrorType="APP:UNSUPPORTED_CARRIER">
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"tracking_number": "123456"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="carrier" value="#['FEDEX']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-route-carrier-normalization" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 4: Unmapped Status Code Raises Operational Alert in Processing Flow  -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-unmapped-carrier-status-records-operational-alert" description="Verify unknown carrier status code mapped to EXCEPTION generates UNKNOWN_STATUS alert">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Event Key Lookup - Not Duplicate">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Shipment Lookup - Registered">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-tracking" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="shipmentRecord" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'PICKED_UP',
+							status_rank: 20,
+							last_event_timestamp: '2026-10-10 09:00:00',
+							promised_delivery_time: '2026-10-15 18:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Update Shipment Master">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-update-shipment" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Tracking Event History">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-event" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Integration Alert">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-alert" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Enqueue Milestone Notification">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="subflow-publish-milestone-notification" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{}]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventId": "EVT-UNMAPPED-01",
+					"eventKey": "BLUEDART-BD-987654321-CUSTOMS-20261010140000",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"originalStatus": "CUSTOMS_DELAY_SPECIAL",
+					"normalizedStatus": "EXCEPTION",
+					"eventTimestamp": "2026-10-10T14:00:00Z",
+					"receivedTimestamp": "2026-10-10T14:05:00Z",
+					"correlationId": "corr-unmapped-01",
+					"location": "Customs Hub",
+					"description": "Unregistered status code",
+					"sourcePayload": "{}"
+				}]' mediaType="application/java" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-unmapped-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="flow-process-canonical-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Alert Type is UNKNOWN_STATUS"
+				actual="#[vars.alertType]" expected="#['UNKNOWN_STATUS']" />
+			<munit-tools:assert-equals doc:name="Assert Alert Severity is WARNING"
+				actual="#[vars.alertSeverity]" expected="#['WARNING']" />
+			<munit-tools:assert-equals doc:name="Assert Status is EVENT_PROCESSED_SUCCESSFULLY"
+				actual="#[payload.status]" expected="#['EVENT_PROCESSED_SUCCESSFULLY']" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

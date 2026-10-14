@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="db-operations-munit" />
+
+	<!-- ========================================================================= -->
+	<!-- TEST 1: subflow-select-event-by-key                                       -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-event-by-key" description="Test subflow-select-event-by-key queries tracking event by unique key">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Existing Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-key" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="existingEvent" value="#[[{ id: 101, event_key: 'KEY-TEST-01' }]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{ eventKey: 'KEY-TEST-01' }]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-event-by-key" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert existingEvent found"
+				actual="#[sizeOf(vars.existingEvent)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Event ID"
+				actual="#[vars.existingEvent[0].id]" expected="#[101]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 2: subflow-select-shipment-by-tracking-number                         -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-shipment-by-tracking-number" description="Test subflow-select-shipment-by-tracking-number queries master shipment">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment by Tracking">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-tracking" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="shipmentRecord" value="#[[{ shipment_id: 'SHP-1001', tracking_number: 'BD-TRK-01' }]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{ trackingNumber: 'BD-TRK-01' }]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-shipment-by-tracking-number" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert shipmentRecord found"
+				actual="#[sizeOf(vars.shipmentRecord)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Shipment ID"
+				actual="#[vars.shipmentRecord[0].shipment_id]" expected="#['SHP-1001']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 3: subflow-insert-tracking-event                                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-insert-tracking-event-success" description="Test subflow-insert-tracking-event persists audit event successfully">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Tracking Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-event" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						eventKey: 'BLUEDART-BD-101-IT-20261010110000',
+						eventId: 'EVT-101',
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-101',
+						carrier: 'BLUEDART',
+						originalStatus: 'IT',
+						normalizedStatus: 'IN_TRANSIT',
+						eventTimestamp: '2026-10-10T11:00:00Z',
+						receivedTimestamp: '2026-10-10T11:05:00Z',
+						location: 'Mumbai Hub',
+						description: 'In Transit',
+						sourcePayload: '{}'
+					}]" />
+					<munit:variable key="processingResult" value="#['PROCESSED']" />
+					<munit:variable key="correlationId" value="#['corr-db-insert-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-insert-tracking-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Affected Rows"
+				actual="#[payload.affectedRows]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 4: subflow-update-shipment-state                                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-update-shipment-state-success" description="Test subflow-update-shipment-state updates master record">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Update Shipment Master">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-update-shipment" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						normalizedStatus: 'IN_TRANSIT',
+						eventTimestamp: '2026-10-10T11:00:00Z',
+						estimatedDeliveryTime: '2026-10-12T18:00:00Z'
+					}]" />
+					<munit:variable key="newStatusRank" value="#[30]" />
+					<munit:variable key="riskAssessment" value="#[{
+						riskLevel: 'ON_TRACK',
+						explanation: 'Scans progressing normally.'
+					}]" />
+					<munit:variable key="targetShipment" value="#[{
+						shipment_id: 'SHP-1001'
+					}]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-update-shipment-state" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Affected Rows"
+				actual="#[payload.affectedRows]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 5: subflow-insert-pending-event                                      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-insert-pending-event-success" description="Test subflow-insert-pending-event saves quarantined event">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Pending Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-pending" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						eventKey: 'BLUEDART-BD-PENDING-01',
+						trackingNumber: 'BD-UNKNOWN-01',
+						carrier: 'BLUEDART',
+						sourcePayload: '{}',
+						receivedTimestamp: '2026-10-10T11:00:00Z'
+					}]" />
+					<munit:variable key="correlationId" value="#['corr-db-pending-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-insert-pending-event" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Affected Rows"
+				actual="#[payload.affectedRows]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 6: subflow-select-shipment-by-id                                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-shipment-by-id" description="Test subflow-select-shipment-by-id queries shipment by identifier">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment by ID">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'IN_TRANSIT'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="trackingIdentifier" value="#['BD-987654321']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-shipment-by-id" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Queried Shipment Found"
+				actual="#[sizeOf(vars.queriedShipment)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Tracking Number"
+				actual="#[vars.queriedShipment[0].tracking_number]" expected="#['BD-987654321']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 7: subflow-select-events-by-shipment-id                              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-events-by-shipment-id" description="Test subflow-select-events-by-shipment-id queries chronological events">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Chronological Events">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-events" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{ id: 1, event_key: 'EVT-01', tracking_number: 'BD-987654321' }
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="trackingIdentifier" value="#['BD-987654321']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-events-by-shipment-id" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Events Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 8: subflow-select-notifications-by-shipment-id                       -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-notifications-by-shipment-id" description="Test subflow-select-notifications-by-shipment-id queries outbox notifications">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Outbox Notifications">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-notifications" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{ id: 1, notification_id: 'NOTIF-01', milestone: 'DELIVERED' }
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="trackingIdentifier" value="#['BD-987654321']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-select-notifications-by-shipment-id" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Notifications Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 9: subflow-select-carrier-pulse-metrics                              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-carrier-pulse-metrics" description="Test subflow-select-carrier-pulse-metrics queries operational telemetry">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Pulse Metrics">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-pulse" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{ carrier: 'BLUEDART', total_events: 10, total_events_received: 10 }
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="subflow-select-carrier-pulse-metrics" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Pulse Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 10: subflow-select-pending-events-for-reconcile                      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-select-pending-events-for-reconcile" description="Test subflow-select-pending-events-for-reconcile queries pending events">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Find Reconcilable Events">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-find-pending" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="pendingReconcileList" value="#[[
+							{ id: 1, event_key: 'KEY-REC-01' }
+						]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="subflow-select-pending-events-for-reconcile" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert pendingReconcileList found"
+				actual="#[sizeOf(vars.pendingReconcileList)]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 11: subflow-update-pending-status                                    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-update-pending-status" description="Test subflow-update-pending-status marks pending event as RECONCILED">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Mark Pending Reconciled">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-mark-reconciled" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="reconcileItem" value="#[{ id: 10 }]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-update-pending-status" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Affected Rows"
+				actual="#[payload.affectedRows]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 12: subflow-insert-notification-outbox                               -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-insert-notification-outbox" description="Test subflow-insert-notification-outbox saves outbox notification">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Notification Outbox">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-outbox" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="outboxInsertResult" value="#[{ affectedRows: 1 }]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="notificationPayload" value="#[{
+						notificationId: 'NOTIF-101',
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-987654321',
+						carrier: 'BLUEDART',
+						milestone: 'DELIVERED',
+						messageBody: 'Delivered successfully.',
+						channels: ['EMAIL', 'SMS']
+					}]" />
+					<munit:variable key="correlationId" value="#['corr-db-outbox-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-insert-notification-outbox" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert outboxInsertResult present"
+				actual="#[vars.outboxInsertResult != null]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 13: subflow-mark-notification-sent                                   -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-mark-notification-sent" description="Test subflow-mark-notification-sent updates status to SENT">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Update Outbox Sent Status">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-update-outbox-sent" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="outboxUpdateResult" value="#[{ affectedRows: 1 }]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="notificationItem" value="#[{ notificationId: 'NOTIF-101' }]" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-mark-notification-sent" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert outboxUpdateResult present"
+				actual="#[vars.outboxUpdateResult != null]" expected="#[true]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 14: subflow-insert-integration-alert                                 -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-db-insert-integration-alert" description="Test subflow-insert-integration-alert persists operational alert">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Integration Alert">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-alert" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="alertType" value="#['QUEUE_FAILURE']" />
+					<munit:variable key="alertSeverity" value="#['HIGH']" />
+					<munit:variable key="alertTrackingNumber" value="#['BD-987654321']" />
+					<munit:variable key="alertCarrier" value="#['BLUEDART']" />
+					<munit:variable key="alertMessage" value="#['Queue connectivity issue']" />
+					<munit:variable key="correlationId" value="#['corr-alert-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-insert-integration-alert" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Alert Affected Rows"
+				actual="#[payload.affectedRows]" expected="#[1]" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

@@ -2,15 +2,34 @@
   "info": {
     "_postman_id": "4b6a9e10-c32f-48d8-91e7-shipment-tracking-tower",
     "name": "Shipment Signal Control Tower - Multi-Carrier Tracking",
-    "description": "Cognizant MuleSoft Hackathon 2026-2027: Use Case 08 - Logistics. Real-Time Multi-Carrier Shipment Tracking API Test Suite.",
+    "description": "Cognizant MuleSoft Hackathon 2026-2027: Use Case 08 - Logistics. Real-Time Multi-Carrier Shipment Tracking API Test Suite with Automated Assertions.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "01 - Webhooks - Carrier Ingestion",
+      "name": "01 - Carrier Webhook Ingestion",
       "item": [
         {
           "name": "POST BlueDart Webhook - In Transit Scan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Response has success true\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.carrier).to.eql(\"BLUEDART\");",
+                  "    pm.expect(json.normalizedStatus).to.eql(\"IN_TRANSIT\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -33,19 +52,32 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "BLUEDART"]
             }
           }
         },
         {
           "name": "POST Delhivery Webhook - Out for Delivery Scan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Response has success true and normalized status\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.carrier).to.eql(\"DELHIVERY\");",
+                  "    pm.expect(json.normalizedStatus).to.eql(\"OUT_FOR_DELIVERY\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -68,19 +100,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "DELHIVERY"]
             }
           }
         },
         {
           "name": "POST Duplicate BlueDart Scan (Idempotency Test)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify DUPLICATE_ACKNOWLEDGED status\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"DUPLICATE_ACKNOWLEDGED\");",
+                  "    pm.expect(json.isDuplicate).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -103,19 +147,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "BLUEDART"]
             }
           }
         },
         {
           "name": "POST Out-of-Order Stale BlueDart Scan (No State Regression)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify OUT_OF_ORDER_RECORDED status\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"OUT_OF_ORDER_RECORDED\");",
+                  "    pm.expect(json.isOutOfOrder).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -138,19 +194,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "BLUEDART"]
             }
           }
         },
         {
           "name": "POST Unknown Shipment Scan (Quarantine Buffer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify QUARANTINED_PENDING_REGISTRATION status\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"QUARANTINED_PENDING_REGISTRATION\");",
+                  "    pm.expect(json.isPendingUnknown).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -173,24 +241,135 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "DELHIVERY"]
             }
           }
         }
       ]
     },
     {
-      "name": "02 - Shipment Management & Tracking",
+      "name": "02 - Direct Carrier Ingestion Routes",
+      "item": [
+        {
+          "name": "POST Direct BlueDart Webhook (/webhooks/bluedart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify BlueDart direct response\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.carrier).to.eql(\"BLUEDART\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{bluedartToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit to Delivery Office\",\n  \"scan_date_time\": \"2026-10-11T12:00:00+05:30\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/bluedart",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "bluedart"]
+            }
+          }
+        },
+        {
+          "name": "POST Direct Delhivery Webhook (/webhooks/delhivery)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify Delhivery direct response\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.carrier).to.eql(\"DELHIVERY\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Carrier-Token",
+                "value": "{{delhiveryToken}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlationId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\",\n  \"Status\": {\n    \"status\": \"In Transit\",\n    \"statusCode\": \"IT\",\n    \"statusDateTime\": \"2026-10-11 12:30:00\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/delhivery",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "delhivery"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Shipment Management & Tracking Master",
       "item": [
         {
           "name": "POST Register Shipment (WMS Master Creation)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Verify created shipment details\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.shipmentId).to.eql(\"SHP-1006\");",
+                  "    pm.expect(json.currentStatus).to.eql(\"LABEL_CREATED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -205,126 +384,252 @@
             },
             "url": {
               "raw": "{{baseUrl}}/shipments",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments"]
             }
           }
         },
         {
           "name": "GET Shipment By Tracking Number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify shipment details\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.trackingNumber).to.eql(pm.environment.get(\"trackingNumberBlueDart\"));",
+                  "    pm.expect(json.riskLevel).to.be.oneOf([\"ON_TRACK\", \"AT_RISK\", \"DELAYED\", \"CRITICAL\", \"UNKNOWN\"]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "{{trackingNumberBlueDart}}"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "{{trackingNumberBlueDart}}"]
             }
           }
         },
         {
           "name": "GET Shipment Event History (Audit Trail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Response is an array of tracking events\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(Array.isArray(json)).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}/history",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "{{trackingNumberBlueDart}}",
-                "history"
-              ]
-            }
-          }
-        },
-        {
-          "name": "GET Explainable Risk Assessment (Delayed SLA)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelayed}}/risk",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "{{trackingNumberDelayed}}",
-                "risk"
-              ]
-            }
-          }
-        },
-        {
-          "name": "GET Customer Notification Messages (Transactional Outbox)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelhivery}}/notifications",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "{{trackingNumberDelhivery}}",
-                "notifications"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "{{trackingNumberBlueDart}}", "history"]
             }
           }
         }
       ]
     },
     {
-      "name": "03 - Control Tower Operations & Telemetry",
+      "name": "04 - Risk Engine & Notifications",
+      "item": [
+        {
+          "name": "GET Explainable Risk Assessment (Delayed SLA)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify risk calculation fields\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.riskLevel).to.be.oneOf([\"ON_TRACK\", \"AT_RISK\", \"DELAYED\", \"CRITICAL\", \"UNKNOWN\"]);",
+                  "    pm.expect(json.reasonCode).to.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelayed}}/risk",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "{{trackingNumberDelayed}}", "risk"]
+            }
+          }
+        },
+        {
+          "name": "GET Customer Notification Messages (Transactional Outbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify notifications array\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(Array.isArray(json)).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/shipments/{{trackingNumberDelhivery}}/notifications",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "{{trackingNumberDelhivery}}", "notifications"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Control Tower Telemetry & Quarantine Operations",
       "item": [
         {
           "name": "GET Operational Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Health status is UP\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql(\"UP\");",
+                  "    pm.expect(json.database).to.eql(\"CONNECTED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/health",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "health"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
             }
           }
         },
         {
           "name": "GET Carrier Pulse Metrics & Telemetry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Carrier pulse returns metrics array\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(Array.isArray(json)).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/carriers/pulse",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "carriers",
-                "pulse"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["carriers", "pulse"]
+            }
+          }
+        },
+        {
+          "name": "POST Replay Quarantined Event",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventKey\": \"DELHIVERY-DELH-99887766-IN_TRANSIT-20261011111500\",\n  \"operatorReason\": \"Shipment SHP-1005 manifested in WMS; operator manual replay\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/replay",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "replay"]
             }
           }
         },
         {
           "name": "POST Reconcile Quarantined Events Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Verify reconciliation response\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(true);",
+                  "    pm.expect(json.status).to.eql(\"RECONCILIATION_COMPLETED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -335,23 +640,36 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/events/reconcile",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "events",
-                "reconcile"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "reconcile"]
             }
           }
         }
       ]
     },
     {
-      "name": "04 - Negative Testing & Security",
+      "name": "06 - Negative Testing & Security",
       "item": [
         {
           "name": "N01 - Missing / Invalid Carrier Token (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Verify UNAUTHORIZED error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"UNAUTHORIZED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -374,20 +692,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N01: Missing or incorrect X-Carrier-Token must be rejected with HTTP 401 Unauthorized. No DB writes or notifications occur."
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "BLUEDART"]
+            }
           }
         },
         {
           "name": "N01-B - Completely Missing Token Header (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test(\"Verify UNAUTHORIZED error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"UNAUTHORIZED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -406,20 +735,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
-            },
-            "description": "N01-B: Omission of X-Carrier-Token header is rejected with HTTP 401."
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "DELHIVERY"]
+            }
           }
         },
         {
           "name": "N02-A - Malformed Payload - Missing Tracking Number AWB (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Verify BAD_REQUEST error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"BAD_REQUEST\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -442,20 +782,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N02: Missing required tracking number rejected with HTTP 400 Bad Request."
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "BLUEDART"]
+            }
           }
         },
         {
           "name": "N02-B - Malformed Payload - Missing Carrier Status (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Verify BAD_REQUEST error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"BAD_REQUEST\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -478,52 +829,31 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
-            },
-            "description": "N02: Missing carrier status rejected with HTTP 400 Bad Request."
-          }
-        },
-        {
-          "name": "N02-C - Malformed Syntax - Broken JSON (400 Bad Request)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"BD-987654321\",\n  \"status_code\": "
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N02: Malformed JSON syntax rejected with HTTP 400 Bad Request."
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "DELHIVERY"]
+            }
           }
         },
         {
           "name": "N03 - Unsupported Carrier Code (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Verify UNSUPPORTED_CARRIER error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"UNSUPPORTED_CARRIER\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -546,304 +876,107 @@
             },
             "url": {
               "raw": "{{baseUrl}}/webhooks/carriers/FEDEX",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "FEDEX"
-              ]
-            },
-            "description": "N03: Unsupported carrier code (e.g. FEDEX) rejected with HTTP 400 UNSUPPORTED_CARRIER."
-          }
-        },
-        {
-          "name": "N04 - Unmapped Carrier Status (200 Normalized to EXCEPTION & Alert)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"CUSTOMS_SPECIAL_HOLD\",\n  \"status_description\": \"Shipment detained for regulatory verification\",\n  \"scan_date_time\": \"2026-10-13T11:00:00+05:30\",\n  \"location_code\": \"BOM/AIRPORT\",\n  \"location_name\": \"Mumbai Air Cargo Complex\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N04: Unmapped carrier status normalized to EXCEPTION milestone, originalStatus preserved, and operational alert logged."
-          }
-        },
-        {
-          "name": "N05 - Unknown Tracking Number (200 Quarantined to Pending Buffer)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{delhiveryToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"waybill\": \"DELH-NOT-YET-REGISTERED-8888\",\n  \"Status\": {\n    \"status\": \"In Transit\",\n    \"statusCode\": \"IT\",\n    \"statusDateTime\": \"2026-10-13 11:30:00\",\n    \"instructions\": \"Package moving between freight hubs\"\n  },\n  \"Scans\": [\n    {\n      \"scanType\": \"Bag In\",\n      \"scanDateTime\": \"2026-10-13 11:30:00\",\n      \"scannedLocation\": \"GGN/HUB\"\n    }\n  ],\n  \"ExpectedDeliveryDate\": \"2026-10-15T18:00:00Z\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
-            },
-            "description": "N05: Unmanifested tracking number safely quarantined in pending_tracking_events table."
-          }
-        },
-        {
-          "name": "N06 - Duplicate Webhook Delivery (200 Suppressed & Idempotent)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"In Transit - Forwarded to Destination Hub\",\n  \"scan_date_time\": \"2026-10-11T10:30:00+05:30\",\n  \"location_code\": \"DEL/HUB\",\n  \"location_name\": \"Delhi Regional Sorting Hub\",\n  \"eta\": \"2026-10-14T18:00:00+05:30\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N06: Replaying identical event key returns DUPLICATE_ACKNOWLEDGED. Duplicate DB record & notification suppressed."
-          }
-        },
-        {
-          "name": "N07 - Out-of-Order Stale Scan (200 No Current Status Regression)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"PU\",\n  \"status_description\": \"Delayed pickup confirmation timestamp from earlier origin scan\",\n  \"scan_date_time\": \"2026-10-10T08:00:00+05:30\",\n  \"location_code\": \"BOM/FC\",\n  \"location_name\": \"Mumbai FC Origin\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N07: Stale scan timestamp recorded in history as OUT_OF_ORDER_RECORDED without regressing active status."
-          }
-        },
-        {
-          "name": "N08 - Transit Scan After Delivery (200 Preserves Delivered State)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{delhiveryToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"waybill\": \"{{trackingNumberDelhivery}}\",\n  \"Status\": {\n    \"statusCode\": \"IT\",\n    \"status\": \"Delayed transit scan arriving after package delivered\"\n  },\n  \"Scans\": [\n    {\n      \"scannedLocation\": \"BOM/SORT\",\n      \"scanDateTime\": \"2026-10-13 15:00:00\"\n    }\n  ]\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/DELHIVERY",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "DELHIVERY"
-              ]
-            },
-            "description": "N08: Transit scan received after DELIVERED status does not overwrite delivered state."
-          }
-        },
-        {
-          "name": "N12 - Internal Hub Scan Milestone Filter (200 Suppresses Customer Email)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"AR\",\n  \"status_description\": \"Arrived at intermediate sorting hub\",\n  \"scan_date_time\": \"2026-10-13T13:00:00+05:30\",\n  \"location_code\": \"NAG/HUB\",\n  \"location_name\": \"Nagpur Transit Center\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N12: Internal hub scans stored in history; customer milestone notifications suppressed."
-          }
-        },
-        {
-          "name": "N14 - Malformed Timestamp String Fallback (200 Safe Resilient Parsing)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "X-Carrier-Token",
-                "value": "{{bluedartToken}}"
-              },
-              {
-                "key": "X-Correlation-ID",
-                "value": "{{correlationId}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"awb_no\": \"{{trackingNumberBlueDart}}\",\n  \"status_code\": \"IT\",\n  \"status_description\": \"Scan with non-standard datetime string\",\n  \"scan_date_time\": \"CORRUPTED_NON_ISO_TIMESTAMP_XYZ\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/webhooks/carriers/BLUEDART",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "webhooks",
-                "carriers",
-                "BLUEDART"
-              ]
-            },
-            "description": "N14: Malformed timestamp parsed safely via DataWeave try() fallback to current UTC time."
+              "host": ["{{baseUrl}}"],
+              "path": ["webhooks", "carriers", "FEDEX"]
+            }
           }
         },
         {
           "name": "GET Shipment - Non-Existent Tracking Number (404 Not Found)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"Verify RESOURCE_NOT_FOUND error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"RESOURCE_NOT_FOUND\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/shipments/NON_EXISTENT_AWB_9999",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "NON_EXISTENT_AWB_9999"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "NON_EXISTENT_AWB_9999"]
+            }
+          }
+        },
+        {
+          "name": "POST Replay - Non-Existent Event Key (404 Not Found)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"Verify RESOURCE_NOT_FOUND error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventKey\": \"NON_EXISTENT_REPLAY_KEY_9999\",\n  \"operatorReason\": \"Replay non-existent event\"\n}"
             },
-            "description": "Non-existent tracking number returns HTTP 404 RESOURCE_NOT_FOUND."
+            "url": {
+              "raw": "{{baseUrl}}/events/replay",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "replay"]
+            }
           }
         },
         {
           "name": "DELETE Shipment - Method Not Allowed (405 Method Not Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 405 Method Not Allowed\", function () {",
+                  "    pm.response.to.have.status(405);",
+                  "});",
+                  "pm.test(\"Verify METHOD_NOT_ALLOWED error code\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.eql(false);",
+                  "    pm.expect(json.error.code).to.eql(\"METHOD_NOT_ALLOWED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/shipments/{{trackingNumberBlueDart}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "shipments",
-                "{{trackingNumberBlueDart}}"
-              ]
-            },
-            "description": "Unsupported HTTP method returns HTTP 405 METHOD_NOT_ALLOWED."
+              "host": ["{{baseUrl}}"],
+              "path": ["shipments", "{{trackingNumberBlueDart}}"]
+            }
           }
         }
       ]

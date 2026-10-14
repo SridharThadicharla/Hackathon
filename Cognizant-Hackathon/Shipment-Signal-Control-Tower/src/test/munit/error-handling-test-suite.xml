@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="error-handling-munit" />
+
+	<!-- ========================================================================= -->
+	<!-- Test Trigger Flows that invoke globalError_Handler                        -->
+	<!-- ========================================================================= -->
+
+	<!-- 1. APIKIT:BAD_REQUEST -->
+	<flow name="trigger-flow-apikit-bad-request">
+		<raise-error type="APIKIT:BAD_REQUEST" description="Malformed JSON body" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-apikit-bad-request">
+		<try>
+			<flow-ref name="trigger-flow-apikit-bad-request" />
+			<error-handler>
+				<on-error-continue type="APIKIT:BAD_REQUEST" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 2. APP:BAD_REQUEST -->
+	<flow name="trigger-flow-app-bad-request">
+		<raise-error type="APP:BAD_REQUEST" description="Missing tracking identifier" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-app-bad-request">
+		<try>
+			<flow-ref name="trigger-flow-app-bad-request" />
+			<error-handler>
+				<on-error-continue type="APP:BAD_REQUEST" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 3. APP:UNAUTHORIZED -->
+	<flow name="trigger-flow-app-unauthorized">
+		<raise-error type="APP:UNAUTHORIZED" description="Invalid carrier token" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-app-unauthorized">
+		<try>
+			<flow-ref name="trigger-flow-app-unauthorized" />
+			<error-handler>
+				<on-error-continue type="APP:UNAUTHORIZED" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 4. APIKIT:NOT_FOUND -->
+	<flow name="trigger-flow-apikit-not-found">
+		<raise-error type="APIKIT:NOT_FOUND" description="Endpoint path not found" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-apikit-not-found">
+		<try>
+			<flow-ref name="trigger-flow-apikit-not-found" />
+			<error-handler>
+				<on-error-continue type="APIKIT:NOT_FOUND" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 5. APP:NOT_FOUND -->
+	<flow name="trigger-flow-app-not-found">
+		<raise-error type="APP:NOT_FOUND" description="Shipment does not exist" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-app-not-found">
+		<try>
+			<flow-ref name="trigger-flow-app-not-found" />
+			<error-handler>
+				<on-error-continue type="APP:NOT_FOUND" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 6. APIKIT:METHOD_NOT_ALLOWED -->
+	<flow name="trigger-flow-apikit-method-not-allowed">
+		<raise-error type="APIKIT:METHOD_NOT_ALLOWED" description="PUT not supported" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-apikit-method-not-allowed">
+		<try>
+			<flow-ref name="trigger-flow-apikit-method-not-allowed" />
+			<error-handler>
+				<on-error-continue type="APIKIT:METHOD_NOT_ALLOWED" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 7. APP:UNSUPPORTED_CARRIER -->
+	<flow name="trigger-flow-unsupported-carrier">
+		<raise-error type="APP:UNSUPPORTED_CARRIER" description="Carrier FEDEX not supported" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-unsupported-carrier">
+		<try>
+			<flow-ref name="trigger-flow-unsupported-carrier" />
+			<error-handler>
+				<on-error-continue type="APP:UNSUPPORTED_CARRIER" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 8. DB:CONNECTIVITY -->
+	<flow name="trigger-flow-db-connectivity">
+		<raise-error type="DB:CONNECTIVITY" description="Connection pool exhausted" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-db-connectivity">
+		<try>
+			<flow-ref name="trigger-flow-db-connectivity" />
+			<error-handler>
+				<on-error-continue type="DB:CONNECTIVITY" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- 9. ANY (Unexpected Runtime Error) -->
+	<flow name="trigger-flow-any-error">
+		<raise-error type="MULE:EXPRESSION" description="Unexpected expression evaluation failure" />
+		<error-handler ref="globalError_Handler" />
+	</flow>
+	<flow name="test-harness-any-error">
+		<try>
+			<flow-ref name="trigger-flow-any-error" />
+			<error-handler>
+				<on-error-continue type="ANY" />
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- ========================================================================= -->
+	<!-- MUnit Tests for Error Handling Coverage                                   -->
+	<!-- ========================================================================= -->
+
+	<!-- Test 1: APIKIT:BAD_REQUEST (HTTP 400) -->
+	<munit:test name="test-error-handling-apikit-bad-request" description="Verify APIKIT:BAD_REQUEST formats 400 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-400']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-apikit-bad-request" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 400"
+				actual="#[vars.httpStatus]" expected="#['400']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code BAD_REQUEST"
+				actual="#[payload.error.code]" expected="#['BAD_REQUEST']" />
+			<munit-tools:assert-equals doc:name="Assert Success False"
+				actual="#[payload.success]" expected="#[false]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 2: APP:BAD_REQUEST (HTTP 400) -->
+	<munit:test name="test-error-handling-app-bad-request" description="Verify APP:BAD_REQUEST formats 400 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-app-400']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-app-bad-request" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 400"
+				actual="#[vars.httpStatus]" expected="#['400']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code BAD_REQUEST"
+				actual="#[payload.error.code]" expected="#['BAD_REQUEST']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 3: APP:UNAUTHORIZED (HTTP 401) -->
+	<munit:test name="test-error-handling-app-unauthorized" description="Verify APP:UNAUTHORIZED formats 401 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-401']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-app-unauthorized" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 401"
+				actual="#[vars.httpStatus]" expected="#['401']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code UNAUTHORIZED"
+				actual="#[payload.error.code]" expected="#['UNAUTHORIZED']" />
+			<munit-tools:assert-equals doc:name="Assert Success False"
+				actual="#[payload.success]" expected="#[false]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 4: APIKIT:NOT_FOUND (HTTP 404) -->
+	<munit:test name="test-error-handling-apikit-not-found" description="Verify APIKIT:NOT_FOUND formats 404 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-404']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-apikit-not-found" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 404"
+				actual="#[vars.httpStatus]" expected="#['404']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code RESOURCE_NOT_FOUND"
+				actual="#[payload.error.code]" expected="#['RESOURCE_NOT_FOUND']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 5: APP:NOT_FOUND (HTTP 404) -->
+	<munit:test name="test-error-handling-app-not-found" description="Verify APP:NOT_FOUND formats 404 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-app-404']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-app-not-found" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 404"
+				actual="#[vars.httpStatus]" expected="#['404']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code RESOURCE_NOT_FOUND"
+				actual="#[payload.error.code]" expected="#['RESOURCE_NOT_FOUND']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 6: APIKIT:METHOD_NOT_ALLOWED (HTTP 405) -->
+	<munit:test name="test-error-handling-apikit-method-not-allowed" description="Verify APIKIT:METHOD_NOT_ALLOWED formats 405 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-405']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-apikit-method-not-allowed" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 405"
+				actual="#[vars.httpStatus]" expected="#['405']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code METHOD_NOT_ALLOWED"
+				actual="#[payload.error.code]" expected="#['METHOD_NOT_ALLOWED']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 7: APP:UNSUPPORTED_CARRIER (HTTP 400) -->
+	<munit:test name="test-error-handling-unsupported-carrier" description="Verify APP:UNSUPPORTED_CARRIER formats 400 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-carrier']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-unsupported-carrier" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 400"
+				actual="#[vars.httpStatus]" expected="#['400']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code UNSUPPORTED_CARRIER"
+				actual="#[payload.error.code]" expected="#['UNSUPPORTED_CARRIER']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 8: DB:CONNECTIVITY (HTTP 503) -->
+	<munit:test name="test-error-handling-db-connectivity" description="Verify DB:CONNECTIVITY formats 503 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-503']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-db-connectivity" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 503"
+				actual="#[vars.httpStatus]" expected="#['503']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code DATABASE_UNAVAILABLE"
+				actual="#[payload.error.code]" expected="#['DATABASE_UNAVAILABLE']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- Test 9: ANY / Internal Server Error (HTTP 500) -->
+	<munit:test name="test-error-handling-any-internal-error" description="Verify ANY unhandled error formats 500 error response">
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-err-500']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="test-harness-any-error" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 500"
+				actual="#[vars.httpStatus]" expected="#['500']" />
+			<munit-tools:assert-equals doc:name="Assert Error Code INTERNAL_SERVER_ERROR"
+				actual="#[payload.error.code]" expected="#['INTERNAL_SERVER_ERROR']" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

@@ -1,0 +1,847 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="api-endpoints-munit" />
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /webhooks/carriers/{carrierCode} (Generic Carrier Ingestion)    -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-webhook-carriers-bluedart-success" description="Test POST /webhooks/carriers/{carrierCode} routes and authenticates BlueDart">
+		<munit:behavior>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Flow Process Canonical Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="flow-process-canonical-event" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{
+						"success": true,
+						"status": "EVENT_PROCESSED_SUCCESSFULLY",
+						"trackingNumber": "BD-987654321",
+						"carrier": "BLUEDART"
+					}]' mediaType="application/java" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"awb_no": "BD-987654321",
+					"status_code": "IT",
+					"status_description": "In Transit",
+					"scan_date_time": "2026-10-10T11:00:00+05:30"
+				}]' mediaType="application/java" />
+				<munit:attributes value="#[{
+					uriParams: { 'carrierCode': 'BLUEDART' },
+					headers: { 'x-carrier-token': 'bluedart-webhook-secret-key-2026' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-api-wh-01']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="post:\webhooks\carriers\(carrierCode):application\json:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Carrier Variable is BLUEDART"
+				actual="#[vars.carrier]" expected="#['BLUEDART']" />
+			<munit-tools:assert-equals doc:name="Assert Success Response Status"
+				actual="#[payload.status]" expected="#['EVENT_PROCESSED_SUCCESSFULLY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /webhooks/bluedart (Direct BlueDart Ingestion Route)           -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-webhook-bluedart-direct-success" description="Test POST /webhooks/bluedart direct carrier endpoint">
+		<munit:behavior>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Flow Process Canonical Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="flow-process-canonical-event" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{
+						"success": true,
+						"status": "EVENT_PROCESSED_SUCCESSFULLY",
+						"trackingNumber": "BD-987654321",
+						"carrier": "BLUEDART"
+					}]' mediaType="application/java" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"awb_no": "BD-987654321",
+					"status_code": "IT",
+					"status_description": "In Transit",
+					"scan_date_time": "2026-10-10T11:00:00+05:30"
+				}]' mediaType="application/java" />
+				<munit:attributes value="#[{
+					headers: { 'x-carrier-token': 'bluedart-webhook-secret-key-2026' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-api-bd-direct']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="post:\webhooks\bluedart:application\json:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Carrier Variable is BLUEDART"
+				actual="#[vars.carrier]" expected="#['BLUEDART']" />
+			<munit-tools:assert-equals doc:name="Assert Result Status"
+				actual="#[payload.status]" expected="#['EVENT_PROCESSED_SUCCESSFULLY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /webhooks/delhivery (Direct Delhivery Ingestion Route)         -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-webhook-delhivery-direct-success" description="Test POST /webhooks/delhivery direct carrier endpoint">
+		<munit:behavior>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Flow Process Canonical Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="flow-process-canonical-event" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{
+						"success": true,
+						"status": "EVENT_PROCESSED_SUCCESSFULLY",
+						"trackingNumber": "DELH-11223344",
+						"carrier": "DELHIVERY"
+					}]' mediaType="application/java" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"waybill": "DELH-11223344",
+					"Status": {
+						"status": "In Transit",
+						"statusCode": "IT",
+						"statusDateTime": "2026-10-10 10:00:00"
+					}
+				}]' mediaType="application/java" />
+				<munit:attributes value="#[{
+					headers: { 'x-carrier-token': 'delhivery-webhook-secret-key-2026' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-api-del-direct']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="post:\webhooks\delhivery:application\json:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Carrier Variable is DELHIVERY"
+				actual="#[vars.carrier]" expected="#['DELHIVERY']" />
+			<munit-tools:assert-equals doc:name="Assert Result Status"
+				actual="#[payload.status]" expected="#['EVENT_PROCESSED_SUCCESSFULLY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /shipments (Create / Seed Master Shipment Record)               -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-post-shipment-success" description="Test POST /shipments registers master record and returns HTTP 201">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Shipment Record">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="Insert New Shipment" attributeName="doc:name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Created Shipment">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							origin_location: 'Mumbai Hub',
+							destination_location: 'Delhi Hub',
+							current_status: 'LABEL_CREATED',
+							status_rank: 10,
+							last_event_timestamp: null,
+							estimated_delivery_time: null,
+							promised_delivery_time: '2026-10-15 18:00:00',
+							risk_level: 'ON_TRACK',
+							risk_reason: 'Shipment manifested.',
+							created_at: '2026-10-10 09:00:00',
+							updated_at: '2026-10-10 09:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"shipmentId": "SHP-1001",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"originLocation": "Mumbai Hub",
+					"destinationLocation": "Delhi Hub",
+					"promisedDeliveryTime": "2026-10-15T18:00:00Z"
+				}]' mediaType="application/java" />
+			</munit:set-event>
+			<flow-ref name="post:\shipments:application\json:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert HTTP Status 201"
+				actual="#[vars.httpStatus]" expected="#['201']" />
+			<munit-tools:assert-equals doc:name="Assert Created Shipment ID"
+				actual="#[payload.shipmentId]" expected="#['SHP-1001']" />
+			<munit-tools:assert-equals doc:name="Assert Tracking Number"
+				actual="#[payload.trackingNumber]" expected="#['BD-987654321']" />
+			<munit-tools:assert-equals doc:name="Assert Current Status"
+				actual="#[payload.currentStatus]" expected="#['LABEL_CREATED']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber} (Shipment Lookup - Found)            -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-by-id-success" description="Test GET /shipments/{trackingNumber} returns shipment details">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Details">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							origin_location: 'Mumbai Hub',
+							destination_location: 'Delhi Hub',
+							current_status: 'IN_TRANSIT',
+							status_rank: 30,
+							last_event_timestamp: '2026-10-10 11:00:00',
+							estimated_delivery_time: '2026-10-12 18:00:00',
+							promised_delivery_time: '2026-10-15 18:00:00',
+							risk_level: 'ON_TRACK',
+							risk_reason: 'Scans progressing normally.',
+							created_at: '2026-10-10 09:00:00',
+							updated_at: '2026-10-10 11:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'BD-987654321' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber):shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Tracking Number"
+				actual="#[payload.trackingNumber]" expected="#['BD-987654321']" />
+			<munit-tools:assert-equals doc:name="Assert Current Status"
+				actual="#[payload.currentStatus]" expected="#['IN_TRANSIT']" />
+			<munit-tools:assert-equals doc:name="Assert Risk Level"
+				actual="#[payload.riskLevel]" expected="#['ON_TRACK']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber} (Shipment Lookup - Not Found)        -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-by-id-not-found" description="Test GET /shipments/{trackingNumber} raises APP:NOT_FOUND when absent" expectedErrorType="APP:NOT_FOUND">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Empty">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'NON-EXISTENT-TRK' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber):shipment-tracking-config" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/history (Audit Events - Found)      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-history-success" description="Test GET /shipments/{trackingNumber}/history returns audit events trail">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Exists">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{ shipment_id: 'SHP-1001' }]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Chronological Events">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-events" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{
+							id: 1,
+							event_key: 'BLUEDART-BD-987654321-IT-20261010110000',
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							original_status: 'IT',
+							normalized_status: 'IN_TRANSIT',
+							event_timestamp: '2026-10-10 11:00:00',
+							received_timestamp: '2026-10-10 11:00:05',
+							location: 'Mumbai Hub',
+							description: 'In Transit',
+							processing_result: 'PROCESSED',
+							correlation_id: 'corr-001'
+						}
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'BD-987654321' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\history:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Events Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Event Key"
+				actual="#[payload[0].eventKey]" expected="#['BLUEDART-BD-987654321-IT-20261010110000']" />
+			<munit-tools:assert-equals doc:name="Assert Normalized Status"
+				actual="#[payload[0].normalizedStatus]" expected="#['IN_TRANSIT']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/history (History - Not Found)       -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-history-not-found" description="Test GET /shipments/{trackingNumber}/history raises APP:NOT_FOUND when absent" expectedErrorType="APP:NOT_FOUND">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment None">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'UNKNOWN-TRK-HIST' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\history:shipment-tracking-config" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/risk (Risk Assessment - Found)       -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-risk-success" description="Test GET /shipments/{trackingNumber}/risk computes explainable risk">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment For Risk">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'IN_TRANSIT',
+							last_event_timestamp: '2026-10-10 11:00:00',
+							estimated_delivery_time: '2026-10-12 18:00:00',
+							promised_delivery_time: '2026-10-15 18:00:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'BD-987654321' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\risk:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Risk Level is ON_TRACK"
+				actual="#[payload.riskLevel]" expected="#['ON_TRACK']" />
+			<munit-tools:assert-equals doc:name="Assert Tracking Number"
+				actual="#[payload.trackingNumber]" expected="#['BD-987654321']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/risk (Risk Assessment - Not Found)   -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-risk-not-found" description="Test GET /shipments/{trackingNumber}/risk raises APP:NOT_FOUND when absent" expectedErrorType="APP:NOT_FOUND">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment None">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'UNKNOWN-TRK-RISK' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\risk:shipment-tracking-config" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/notifications (Outbox Records Found) -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-notifications-found" description="Test GET /shipments/{trackingNumber}/notifications returns dispatched alerts">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Details">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							current_status: 'OUT_FOR_DELIVERY'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Outbox Notifications">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-notifications" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{
+							id: 10,
+							notification_id: 'NOTIF-001',
+							shipment_id: 'SHP-1001',
+							tracking_number: 'BD-987654321',
+							carrier: 'BLUEDART',
+							milestone: 'OUT_FOR_DELIVERY',
+							message_body: 'Out for delivery today',
+							channels: 'EMAIL,SMS',
+							status: 'SENT',
+							correlation_id: 'corr-001',
+							created_at: '2026-10-10 10:00:00',
+							sent_at: '2026-10-10 10:00:02'
+						}
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'BD-987654321' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\notifications:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Notifications Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Notification ID"
+				actual="#[payload[0].notificationId]" expected="#['NOTIF-001']" />
+			<munit-tools:assert-equals doc:name="Assert Milestone Status"
+				actual="#[payload[0].milestone]" expected="#['OUT_FOR_DELIVERY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/notifications (Fallback Generation)  -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-notifications-fallback" description="Test GET /shipments/{trackingNumber}/notifications creates fallback message if outbox empty">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Details">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[{
+							shipment_id: 'SHP-1002',
+							tracking_number: 'BD-11223344',
+							carrier: 'BLUEDART',
+							current_status: 'PICKED_UP',
+							created_at: '2026-10-10 09:00:00',
+							last_event_timestamp: '2026-10-10 09:30:00'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Outbox Empty">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-notifications" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'BD-11223344' }
+				}]" />
+				<munit:variables>
+					<munit:variable key="correlationId" value="#['corr-notif-fallback']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\notifications:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Fallback Notification Created"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Fallback Milestone is PICKED_UP"
+				actual="#[payload[0].milestone]" expected="#['PICKED_UP']" />
+			<munit-tools:assert-equals doc:name="Assert Status is SENT"
+				actual="#[payload[0].status]" expected="#['SENT']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /shipments/{trackingNumber}/notifications (Not Found)           -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-shipment-notifications-not-found" description="Test GET /shipments/{trackingNumber}/notifications raises APP:NOT_FOUND when absent" expectedErrorType="APP:NOT_FOUND">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Shipment Empty">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-by-id" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="queriedShipment" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					uriParams: { 'trackingNumber': 'UNKNOWN-TRK-NOTIF' }
+				}]" />
+			</munit:set-event>
+			<flow-ref name="get:\shipments\(trackingNumber)\notifications:shipment-tracking-config" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /health (Operational Health Probe)                              -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-health-success" description="Test GET /health checks DB probe and returns operational status">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Probe Database Connection">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="Probe Database Connection" attributeName="doc:name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="dbProbe" value="#[[{ healthy: 1 }]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="get:\health:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Status is UP"
+				actual="#[payload.status]" expected="#['UP']" />
+			<munit-tools:assert-equals doc:name="Assert Database is CONNECTED"
+				actual="#[payload.database]" expected="#['CONNECTED']" />
+			<munit-tools:assert-equals doc:name="Assert Service Name"
+				actual="#[payload.service]" expected="#['Shipment Signal Control Tower API']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: GET /carriers/pulse (Operational Telemetry & Metrics)               -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-get-carriers-pulse-success" description="Test GET /carriers/pulse returns aggregated metrics">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Query Pulse Metrics">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-get-pulse" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[[
+						{
+							carrier: 'BLUEDART',
+							total_events_received: 25,
+							successfully_processed: 22,
+							duplicate_events: 2,
+							out_of_order_events: 1,
+							unknown_status_events: 0,
+							pending_unknown_shipments: 0,
+							active_shipment_count: 5,
+							latest_event_received_at: '2026-10-10 12:00:00'
+						}
+					]]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="get:\carriers\pulse:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Pulse Count is 1"
+				actual="#[sizeOf(payload)]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Carrier Name"
+				actual="#[payload[0].carrier]" expected="#['BLUEDART']" />
+			<munit-tools:assert-equals doc:name="Assert Health Status is HEALTHY"
+				actual="#[payload[0].healthStatus]" expected="#['HEALTHY']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /events/replay (Event Replay - Success)                        -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-post-events-replay-success" description="Test POST /events/replay replays quarantined pending event">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Find Pending Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="Find Event in Pending Table" attributeName="doc:name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="targetPendingEvent" value="#[[{
+							id: 1,
+							event_key: 'DELHIVERY-DELH-99887766-IT-20261011111500',
+							tracking_number: 'DELH-99887766',
+							carrier: 'DELHIVERY',
+							payload: '{&quot;waybill&quot;:&quot;DELH-99887766&quot;,&quot;Status&quot;:{&quot;statusCode&quot;:&quot;IT&quot;,&quot;status&quot;:&quot;In Transit&quot;}}'
+						}]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Flow Process Canonical Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="flow-process-canonical-event" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{ "status": "EVENT_PROCESSED_SUCCESSFULLY" }]' />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Mark Pending Reconciled">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-mark-reconciled" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventKey": "DELHIVERY-DELH-99887766-IT-20261011111500",
+					"operatorReason": "Shipment registered in WMS; replaying quarantined event"
+				}]' mediaType="application/java" />
+			</munit:set-event>
+			<flow-ref name="post:\events\replay:application\json:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Replay Success"
+				actual="#[payload.success]" expected="#[true]" />
+			<munit-tools:assert-equals doc:name="Assert Replay Status"
+				actual="#[payload.status]" expected="#['REPLAYED']" />
+			<munit-tools:assert-equals doc:name="Assert Processing Result"
+				actual="#[payload.processingResult]" expected="#['REPLAY_SUCCESSFUL']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /events/replay (Event Replay - Not Found)                      -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-post-events-replay-not-found" description="Test POST /events/replay raises APP:NOT_FOUND when event absent" expectedErrorType="APP:NOT_FOUND">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Find Pending Event Empty">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="Find Event in Pending Table" attributeName="doc:name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="targetPendingEvent" value="#[[]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"eventKey": "NON-EXISTENT-EVENT-KEY",
+					"operatorReason": "Test replay"
+				}]' mediaType="application/java" />
+			</munit:set-event>
+			<flow-ref name="post:\events\replay:application\json:shipment-tracking-config" />
+		</munit:execution>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: POST /events/reconcile (Batch Quarantine Reconciliation)            -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-post-events-reconcile-success" description="Test POST /events/reconcile loops eligible quarantined events and reconciles">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:select" doc:name="Mock Find Reconcilable Events">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-find-pending" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="pendingReconcileList" value="#[[
+							{
+								id: 5,
+								event_key: 'DELHIVERY-DELH-99887766-RECON',
+								tracking_number: 'DELH-99887766',
+								carrier: 'DELHIVERY',
+								payload: '{&quot;waybill&quot;:&quot;DELH-99887766&quot;,&quot;Status&quot;:{&quot;statusCode&quot;:&quot;IT&quot;,&quot;status&quot;:&quot;In Transit&quot;}}'
+							}
+						]]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="flow-ref" doc:name="Mock Flow Process Canonical Event">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="flow-process-canonical-event" attributeName="name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{ "status": "EVENT_PROCESSED_SUCCESSFULLY" }]' />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Mark Pending Reconciled">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-mark-reconciled" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#[{ affectedRows: 1 }]" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="post:\events\reconcile:shipment-tracking-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Reconcile Success"
+				actual="#[payload.success]" expected="#[true]" />
+			<munit-tools:assert-equals doc:name="Assert Reconciled Count is 1"
+				actual="#[payload.reconciledCount]" expected="#[1]" />
+			<munit-tools:assert-equals doc:name="Assert Reconcile Status"
+				actual="#[payload.status]" expected="#['RECONCILIATION_COMPLETED']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: shipment-tracking-main (Ingress Router Flow)                        -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-main-ingress-router-flow" description="Test shipment-tracking-main flow initializes correlationId and calls apikit:router">
+		<munit:behavior>
+			<munit-tools:mock-when processor="apikit:router" doc:name="Mock APIKit Router">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="shipment-tracking-config" attributeName="config-ref" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[{ "status": "ROUTED" }]' />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:attributes value="#[{
+					headers: { 'x-correlation-id': 'test-main-ingress-uuid' },
+					method: 'GET',
+					requestPath: '/api/v1/health'
+				}]" />
+			</munit:set-event>
+			<flow-ref name="shipment-tracking-main" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Correlation ID Initialized"
+				actual="#[vars.correlationId]" expected="#['test-main-ingress-uuid']" />
+			<munit-tools:assert-equals doc:name="Assert Payload Routed"
+				actual="#[payload.status]" expected="#['ROUTED']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST: shipment-tracking-console (Console Flow)                            -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-api-console-flow" description="Test shipment-tracking-console calls apikit:console">
+		<munit:behavior>
+			<munit-tools:mock-when processor="apikit:console" doc:name="Mock APIKit Console">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="shipment-tracking-config" attributeName="config-ref" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value='#[&quot;CONSOLE_HTML&quot;]' />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<flow-ref name="shipment-tracking-console" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Console Response"
+				actual="#[payload]" expected="#['CONSOLE_HTML']" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

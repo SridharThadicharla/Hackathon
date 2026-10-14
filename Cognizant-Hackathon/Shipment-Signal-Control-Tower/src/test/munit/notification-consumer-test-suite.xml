@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+	<munit:config name="notification-consumer-munit" />
+
+	<!-- ========================================================================= -->
+	<!-- TEST 1: Notification Queue Consumer Flow Execution                        -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-notification-consumer-flow-success" description="Verify asynchronous notification consumer parses payload, prepares HTML email, and marks outbox sent">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:update" doc:name="Mock Mark Outbox Sent in DB">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-update-outbox-sent" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="outboxUpdateResult" value="#[{ affectedRows: 1 }]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload value='#[{
+					"notificationId": "NOTIF-CONSUMER-01",
+					"shipmentId": "SHP-1001",
+					"trackingNumber": "BD-987654321",
+					"carrier": "BLUEDART",
+					"milestone": "DELIVERED",
+					"location": "Mumbai Central",
+					"eventTimestamp": "2026-10-10T12:00:00Z",
+					"recipientEmail": "customer@control-tower.com",
+					"messageBody": "Delivered successfully! Your shipment has been delivered at destination."
+				}]' mediaType="application/java" />
+			</munit:set-event>
+			<flow-ref name="flow-consume-milestone-notification" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Recipient Email Variable"
+				actual="#[vars.emailRecipient]" expected="#['customer@control-tower.com']" />
+			<munit-tools:assert-equals doc:name="Assert Subject contains DELIVERED"
+				actual="#[vars.emailSubject contains 'DELIVERED']" expected="#[true]" />
+			<munit-tools:assert-equals doc:name="Assert HTML Email Content generated"
+				actual="#[vars.emailHtmlContent != null]" expected="#['true']" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- ========================================================================= -->
+	<!-- TEST 2: Successful Milestone Notification Publication                     -->
+	<!-- ========================================================================= -->
+	<munit:test name="test-notification-publish-milestone-success" description="Verify milestone notification is saved to outbox and published to VM queue">
+		<munit:behavior>
+			<munit-tools:mock-when processor="db:insert" doc:name="Mock Insert Notification Outbox">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="db-insert-outbox" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:variables>
+						<munit-tools:variable key="outboxInsertResult" value="#[{ affectedRows: 1 }]" />
+					</munit-tools:variables>
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+			<munit-tools:mock-when processor="vm:publish" doc:name="Mock VM Publish Milestone">
+				<munit-tools:with-attributes>
+					<munit-tools:with-attribute whereValue="vm-publish-milestone" attributeName="doc:id" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return>
+					<munit-tools:payload value="#['PUBLISHED']" />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:variables>
+					<munit:variable key="canonicalEvent" value="#[{
+						shipmentId: 'SHP-1001',
+						trackingNumber: 'BD-987654321',
+						carrier: 'BLUEDART',
+						normalizedStatus: 'DELIVERED',
+						eventTimestamp: '2026-10-10T12:00:00Z',
+						location: 'Mumbai'
+					}]" />
+					<munit:variable key="targetShipment" value="#[{
+						shipment_id: 'SHP-1001',
+						customer_email: 'customer@example.com'
+					}]" />
+					<munit:variable key="isDuplicate" value="#[false]" />
+					<munit:variable key="isOutOfOrder" value="#[false]" />
+					<munit:variable key="isPendingUnknown" value="#[false]" />
+					<munit:variable key="correlationId" value="#['corr-pub-success']" />
+				</munit:variables>
+			</munit:set-event>
+			<flow-ref name="subflow-publish-milestone-notification" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-equals doc:name="Assert Notification Payload Created"
+				actual="#[vars.notificationPayload != null]" expected="#[true]" />
+			<munit-tools:assert-equals doc:name="Assert Milestone is DELIVERED"
+				actual="#[vars.notificationPayload.milestone]" expected="#['DELIVERED']" />
+		</munit:validation>
+	</munit:test>
+
+</mule>
